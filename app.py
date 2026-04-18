@@ -486,9 +486,11 @@ def main() -> None:
                 "Jogo",
                 backtest["result_df"]["display_label"].tolist(),
             )
-            selected = backtest["result_df"].set_index("display_label").loc[selected_label]
-            if isinstance(selected, pd.DataFrame):
-                selected = selected.iloc[0]
+            selected_rows = backtest["result_df"].loc[backtest["result_df"]["display_label"].eq(selected_label)]
+            if selected_rows.empty:
+                st.warning("Nao foi possivel localizar o jogo selecionado.")
+                return
+            selected = selected_rows.iloc[0]
             st.write(f"{selected['display_label']} | entrada {selected['entry_minute']} | odd {selected['entry_odd']:.2f}")
             with st.spinner("Carregando timeline do jogo..."):
                 render_game_timeline(client, str(selected["sport_event_id"]), selected["odds_field"])

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable
 
 import numpy as np
@@ -196,21 +197,26 @@ def run_backtest(client: ZeusClient, rows: list[dict[str, Any]], config: Backtes
 
     market = MARKET_OPTIONS[config.market_label]
     enriched: list[dict[str, Any]] = []
-    for row in rows:
+
+    def _safe_build(row: dict[str, Any]) -> dict[str, Any]:
         try:
-            enriched.append(_build_row(client, row, config, market))
+            return _build_row(client, row, config, market)
         except Exception as exc:
-            enriched.append(
-                {
-                    "sport_event_id": row.get("sport_event_id"),
-                    "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
-                    "match_datetime": _normalize_datetime(row.get("DataJogo")),
-                    "league": row.get("NivelDados") or row.get("campeonato") or "",
-                    "home_team": row.get("NomeCasa") or row.get("mandante") or "",
-                    "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
-                    "status": f"erro: {exc}",
-                }
-            )
+            return {
+                "sport_event_id": row.get("sport_event_id"),
+                "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
+                "match_datetime": _normalize_datetime(row.get("DataJogo")),
+                "league": row.get("NivelDados") or row.get("campeonato") or "",
+                "home_team": row.get("NomeCasa") or row.get("mandante") or "",
+                "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
+                "status": f"erro: {exc}",
+            }
+
+    max_workers = min(8, max(2, len(rows))) if rows else 2
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_safe_build, row): row for row in rows}
+        for future in as_completed(futures):
+            enriched.append(future.result())
 
     result_df = pd.DataFrame(enriched)
     if "status" in result_df.columns:
