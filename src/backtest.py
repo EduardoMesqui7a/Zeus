@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -9,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from src.query_parser import absolute_to_period_minute, infer_entry_minute
-from src.zeus_client import ZeusClient, ZeusClientError
+from src.zeus_client import AsyncZeusClient, ZeusClient, ZeusClientError
 
 
 def _final_outcome_total_goals(snapshot: dict[str, Any]) -> int:
@@ -218,6 +219,14 @@ def run_backtest(client: ZeusClient, rows: list[dict[str, Any]], config: Backtes
         for future in as_completed(futures):
             enriched.append(future.result())
 
+    return _finalize_backtest(rows, enriched, config)
+
+
+def _finalize_backtest(
+    rows: list[dict[str, Any]],
+    enriched: list[dict[str, Any]],
+    config: BacktestConfig,
+) -> dict[str, Any]:
     result_df = pd.DataFrame(enriched)
     if "status" in result_df.columns:
         result_df = result_df[result_df["status"].eq("ok")].copy()
@@ -257,3 +266,93 @@ def run_backtest(client: ZeusClient, rows: list[dict[str, Any]], config: Backtes
         "avg_entry_odd": float(result_df["entry_odd"].mean()) if not result_df.empty else 0.0,
     }
     return {"metrics": metrics, "result_df": result_df, "config": config}
+
+
+async def _build_row_async(
+    client: AsyncZeusClient,
+    row: dict[str, Any],
+    config: BacktestConfig,
+    market: dict[str, Any],
+) -> dict[str, Any]:
+    game_id = str(row.get("sport_event_id") or "").strip()
+    if not game_id:
+        raise ZeusClientError("Registro sem sport_event_id.")
+
+    entry_minute = config.entry_minute or infer_entry_minute(str(row.get("query") or ""))
+    entry_period, entry_period_minute = absolute_to_period_minute(entry_minute)
+    entry_task = client.fetch_snapshot(game_id, minute=entry_period_minute, period=entry_period)
+    final_task = client.fetch_final_snapshot(game_id, final_minute=config.final_minute)
+    entry_snapshot, final_snapshot = await asyncio.gather(entry_task, final_task)
+
+    odd_field = market["odds_field"]
+    odd_value = entry_snapshot.get(odd_field)
+    if odd_value is None:
+        odd_value = row.get(odd_field)
+    if odd_value is None:
+        return {
+            "sport_event_id": game_id,
+            "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
+            "status": "sem odd",
+        }
+
+    odd_value = float(odd_value)
+    won = bool(market["settle"](final_snapshot))
+    if market["side"] == "back":
+        profit, risk = _apply_back_profit(config.stake, odd_value, won, config.commission)
+    else:
+        profit, risk = _apply_lay_profit(config.stake, odd_value, won, config.commission)
+
+    final_goals = _final_outcome_total_goals(final_snapshot)
+    match_label = f"{pd.to_datetime(row.get('DataJogo'), errors='coerce').strftime('%Y-%m-%d') if pd.notna(pd.to_datetime(row.get('DataJogo'), errors='coerce')) else 'sem-data'} | {row.get('NomeCasa')} x {row.get('NomeVisitante')} | {game_id}"
+    result_text = "WIN" if profit >= 0 else "LOSS"
+    return {
+        "sport_event_id": game_id,
+        "display_label": match_label,
+        "match_datetime": _normalize_datetime(row.get("DataJogo")),
+        "league": row.get("NivelDados") or row.get("campeonato") or "",
+        "home_team": row.get("NomeCasa") or row.get("mandante") or "",
+        "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
+        "entry_minute": entry_minute,
+        "entry_period": entry_period,
+        "entry_odd": odd_value,
+        "odds_field": odd_field,
+        "final_goals": final_goals,
+        "final_home_goals": int(final_snapshot.get("GolsCasa") or 0),
+        "final_away_goals": int(final_snapshot.get("GolsVisitante") or 0),
+        "won": won,
+        "profit": float(profit),
+        "stake_risked": float(risk),
+        "result_text": result_text,
+        "entry_snapshot": entry_snapshot,
+        "final_snapshot": final_snapshot,
+        "status": "ok",
+    }
+
+
+async def run_backtest_async(
+    client: AsyncZeusClient,
+    rows: list[dict[str, Any]],
+    config: BacktestConfig,
+) -> dict[str, Any]:
+    if config.market_label not in MARKET_OPTIONS:
+        raise ZeusClientError(f"Mercado desconhecido: {config.market_label}")
+
+    market = MARKET_OPTIONS[config.market_label]
+
+    async def _safe_build(row: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return await _build_row_async(client, row, config, market)
+        except Exception as exc:
+            return {
+                "sport_event_id": row.get("sport_event_id"),
+                "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
+                "match_datetime": _normalize_datetime(row.get("DataJogo")),
+                "league": row.get("NivelDados") or row.get("campeonato") or "",
+                "home_team": row.get("NomeCasa") or row.get("mandante") or "",
+                "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
+                "status": f"erro: {exc}",
+            }
+
+    tasks = [_safe_build(row) for row in rows]
+    enriched = await asyncio.gather(*tasks)
+    return _finalize_backtest(rows, list(enriched), config)

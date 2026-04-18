@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
 from datetime import datetime
 import json
 import os
@@ -12,14 +14,14 @@ import streamlit as st
 from src.backtest import (
     MARKET_OPTIONS,
     BacktestConfig,
-    run_backtest,
+    run_backtest_async,
 )
 from src.query_parser import (
     extract_minute_refs,
     infer_entry_minute,
 )
 from src.session_store import clear_saved_session, load_saved_session, save_token
-from src.zeus_client import ZeusClient, ZeusClientError
+from src.zeus_client import AsyncZeusClient, ZeusClient, ZeusClientError
 
 
 st.set_page_config(
@@ -280,6 +282,74 @@ def render_timeline_frame(timeline: list[dict[str, object]], market_field: str) 
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 
+def _run_async(coro):
+    try:
+        return asyncio.run(coro)
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_backtest_report(
+    cache_key: str,
+    _token: str,
+    base_query: str,
+    final_filter: str,
+    market_label: str,
+    stake: float,
+    commission: float,
+    max_pages: int,
+    max_games: int,
+    entry_minute: int,
+    final_minute: int,
+) -> dict:
+    full_query = base_query
+    if final_filter.strip():
+        full_query = f"({base_query}) and ({final_filter})" if base_query else final_filter.strip()
+
+    async def _load() -> dict:
+        async with AsyncZeusClient(auth_token=_token) as async_client:
+            base_count_task = async_client.count(base_query) if base_query else asyncio.sleep(0, result={"count": 0})
+            full_rows_task = async_client.search_all(
+                full_query,
+                max_pages=max_pages,
+                max_games=max_games,
+                include_count=True,
+            )
+            base_count_info, full_bundle = await asyncio.gather(base_count_task, full_rows_task)
+            full_count_info, lucy_rows = full_bundle
+            config = BacktestConfig(
+                market_label=market_label,
+                stake=float(stake),
+                commission=float(commission),
+                entry_minute=entry_minute,
+                final_minute=final_minute,
+            )
+            backtest = await run_backtest_async(async_client, lucy_rows, config)
+            return {
+                "base_count_info": base_count_info,
+                "count_info": {"count": full_count_info},
+                "lucy_rows": lucy_rows,
+                "backtest": backtest,
+                "full_query": full_query,
+            }
+
+    return _run_async(_load())
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_timeline_cached(cache_key: str, _token: str, game_id: str, market_field: str) -> list[dict[str, object]]:
+    async def _load() -> list[dict[str, object]]:
+        async with AsyncZeusClient(auth_token=_token) as async_client:
+            return await async_client.fetch_timeline(game_id, market_field=market_field)
+
+    return _run_async(_load())
+
+
 def main() -> None:
     inject_styles()
     saved_session = load_saved_session()
@@ -439,18 +509,16 @@ def main() -> None:
         final_override = st.text_input("Final minute override", value="500", help="Normalmente 500.")
         run = st.button("Consultar Zeus / Lucy", type="primary", use_container_width=True)
 
-    client = ZeusClient(auth_token=token.strip())
-
     if run:
         if not token.strip():
             st.error("Entre com email/senha acima ou informe um token opcional.")
             return
         base_query = query_base.strip()
         final_filter = query_final.strip()
-        full_query = base_query
-        if final_filter:
-            full_query = f"({base_query}) and ({final_filter})" if base_query else final_filter
         try:
+            full_query = base_query
+            if final_filter:
+                full_query = f"({base_query}) and ({final_filter})" if base_query else final_filter
             entry_minute = int(entry_override) if entry_override.strip() else infer_entry_minute(full_query)
             final_minute = int(final_override) if final_override.strip() else 500
         except ValueError:
@@ -459,17 +527,19 @@ def main() -> None:
 
         with st.spinner("Consultando Zeus e Lucy..."):
             try:
-                base_count_info = client.count(base_query) if base_query else {"count": 0}
-                count_info = client.count(full_query)
-                lucy_rows = client.search_all(full_query, max_pages=int(max_pages), max_games=int(max_games))
-                config = BacktestConfig(
-                    market_label=market_label,
-                    stake=float(stake),
-                    commission=float(commission),
-                    entry_minute=entry_minute,
-                    final_minute=final_minute,
+                report = load_backtest_report(
+                    hashlib.sha256(token.encode("utf-8")).hexdigest(),
+                    token,
+                    base_query,
+                    final_filter,
+                    market_label,
+                    float(stake),
+                    float(commission),
+                    int(max_pages),
+                    int(max_games),
+                    entry_minute,
+                    final_minute,
                 )
-                backtest = run_backtest(client, lucy_rows, config)
             except ZeusClientError as exc:
                 st.error(str(exc))
                 return
@@ -482,21 +552,21 @@ def main() -> None:
             <div class="note-box">
                 <strong>Query base:</strong> {base_query}<br/>
                 <strong>Filtro final:</strong> {final_filter or 'nenhum'}<br/>
-                <strong>Query completa:</strong> {full_query}<br/>
-                <strong>Minutos detectados:</strong> {', '.join(map(str, extract_minute_refs(full_query))) or 'nenhum'}<br/>
-                <strong>Entry minute usado:</strong> {backtest['config'].entry_minute}<br/>
-                <strong>Universo base:</strong> {base_count_info.get('count', 0)}<br/>
-                <strong>Universo final:</strong> {count_info.get('count', 0)}<br/>
-                <strong>Conversão:</strong> {((count_info.get('count', 0) / base_count_info.get('count', 1)) * 100.0) if base_count_info.get('count', 0) else 0:.2f}%<br/>
-                <strong>Jogos carregados:</strong> {len(lucy_rows)}<br/>
+                <strong>Query completa:</strong> {report['full_query']}<br/>
+                <strong>Minutos detectados:</strong> {', '.join(map(str, extract_minute_refs(report['full_query']))) or 'nenhum'}<br/>
+                <strong>Entry minute usado:</strong> {report['backtest']['config'].entry_minute}<br/>
+                <strong>Universo base:</strong> {report['base_count_info'].get('count', 0)}<br/>
+                <strong>Universo final:</strong> {report['count_info'].get('count', 0)}<br/>
+                <strong>Conversão:</strong> {((report['count_info'].get('count', 0) / report['base_count_info'].get('count', 1)) * 100.0) if report['base_count_info'].get('count', 0) else 0:.2f}%<br/>
+                <strong>Jogos carregados:</strong> {len(report['lucy_rows'])}<br/>
                 <strong>Mercado:</strong> {market_label}
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        render_metrics(backtest["metrics"])
-        render_charts(backtest["result_df"])
+        render_metrics(report["backtest"]["metrics"])
+        render_charts(report["backtest"]["result_df"])
 
         st.subheader("Resultados")
         display_columns = [
@@ -512,10 +582,10 @@ def main() -> None:
             "final_away_goals",
             "drawdown",
         ]
-        display_df = backtest["result_df"][display_columns].copy()
+        display_df = report["backtest"]["result_df"][display_columns].copy()
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-        csv = backtest["result_df"].to_csv(index=False).encode("utf-8")
+        csv = report["backtest"]["result_df"].to_csv(index=False).encode("utf-8")
         st.download_button(
             "Baixar CSV",
             data=csv,
@@ -524,15 +594,15 @@ def main() -> None:
         )
 
         st.subheader("Detalhe do jogo")
-        if not backtest["result_df"].empty:
+        if not report["backtest"]["result_df"].empty:
             st.session_state.setdefault("zeus_detail_game_id", "")
             st.session_state.setdefault("zeus_detail_market_field", "")
             st.session_state.setdefault("zeus_detail_timeline", [])
             selected_label = st.selectbox(
                 "Jogo",
-                backtest["result_df"]["display_label"].tolist(),
+                report["backtest"]["result_df"]["display_label"].tolist(),
             )
-            selected_rows = backtest["result_df"].loc[backtest["result_df"]["display_label"].eq(selected_label)]
+            selected_rows = report["backtest"]["result_df"].loc[report["backtest"]["result_df"]["display_label"].eq(selected_label)]
             if selected_rows.empty:
                 st.warning("Nao foi possivel localizar o jogo selecionado.")
                 return
@@ -547,9 +617,11 @@ def main() -> None:
                 with st.spinner("Carregando timeline do jogo..."):
                     st.session_state["zeus_detail_game_id"] = str(selected["sport_event_id"])
                     st.session_state["zeus_detail_market_field"] = str(selected["odds_field"])
-                    st.session_state["zeus_detail_timeline"] = client.fetch_timeline(
+                    st.session_state["zeus_detail_timeline"] = load_timeline_cached(
+                        hashlib.sha256(token.encode("utf-8")).hexdigest(),
+                        token,
                         str(selected["sport_event_id"]),
-                        market_field=str(selected["odds_field"]),
+                        str(selected["odds_field"]),
                     )
             if cache_hit and st.session_state.get("zeus_detail_timeline"):
                 render_timeline_frame(
