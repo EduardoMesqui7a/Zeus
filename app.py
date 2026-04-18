@@ -237,6 +237,49 @@ def render_game_timeline(client: ZeusClient, game_id: str, market_field: str) ->
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 
+def render_timeline_frame(timeline: list[dict[str, object]], market_field: str) -> None:
+    if not timeline:
+        st.info("Nao foi possivel montar a linha do tempo deste jogo.")
+        return
+
+    df = pd.DataFrame(timeline)
+    df = df.sort_values(["absolute_minute"])
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=df["absolute_minute"],
+            y=df["odd_value"],
+            mode="lines+markers",
+            name=market_field,
+            line=dict(color="#2563eb", width=3),
+        )
+    )
+    if "gols_total" in df.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=df["absolute_minute"],
+                y=df["gols_total"],
+                mode="lines",
+                name="Gols Total",
+                line=dict(color="#0f766e", width=2, dash="dot"),
+                yaxis="y2",
+            )
+        )
+        fig.update_layout(
+            yaxis2=dict(overlaying="y", side="right", title="Gols"),
+        )
+    fig.update_layout(
+        height=420,
+        template="plotly_white",
+        margin=dict(l=0, r=0, t=20, b=0),
+        xaxis_title="Minuto absoluto",
+        yaxis_title="Odd",
+        legend=dict(orientation="h"),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+
 def main() -> None:
     inject_styles()
     saved_session = load_saved_session()
@@ -482,6 +525,9 @@ def main() -> None:
 
         st.subheader("Detalhe do jogo")
         if not backtest["result_df"].empty:
+            st.session_state.setdefault("zeus_detail_game_id", "")
+            st.session_state.setdefault("zeus_detail_market_field", "")
+            st.session_state.setdefault("zeus_detail_timeline", [])
             selected_label = st.selectbox(
                 "Jogo",
                 backtest["result_df"]["display_label"].tolist(),
@@ -492,8 +538,26 @@ def main() -> None:
                 return
             selected = selected_rows.iloc[0]
             st.write(f"{selected['display_label']} | entrada {selected['entry_minute']} | odd {selected['entry_odd']:.2f}")
-            with st.spinner("Carregando timeline do jogo..."):
-                render_game_timeline(client, str(selected["sport_event_id"]), selected["odds_field"])
+            load_detail = st.button("Carregar detalhe do jogo", use_container_width=True)
+            cache_hit = (
+                st.session_state.get("zeus_detail_game_id") == str(selected["sport_event_id"])
+                and st.session_state.get("zeus_detail_market_field") == str(selected["odds_field"])
+            )
+            if load_detail:
+                with st.spinner("Carregando timeline do jogo..."):
+                    st.session_state["zeus_detail_game_id"] = str(selected["sport_event_id"])
+                    st.session_state["zeus_detail_market_field"] = str(selected["odds_field"])
+                    st.session_state["zeus_detail_timeline"] = client.fetch_timeline(
+                        str(selected["sport_event_id"]),
+                        market_field=str(selected["odds_field"]),
+                    )
+            if cache_hit and st.session_state.get("zeus_detail_timeline"):
+                render_timeline_frame(
+                    st.session_state["zeus_detail_timeline"],
+                    str(selected["odds_field"]),
+                )
+            else:
+                st.caption("Selecione o jogo e clique em 'Carregar detalhe do jogo' para buscar a timeline sob demanda.")
 
         st.caption("Consulta concluida com os endpoints internos do Zeus/Lucy.")
 
