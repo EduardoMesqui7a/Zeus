@@ -41,60 +41,229 @@ def _final_outcome_under_25(snapshot: dict[str, Any]) -> bool:
     return _final_outcome_total_goals(snapshot) <= 2
 
 
+def _final_outcome_under_15(snapshot: dict[str, Any]) -> bool:
+    return _final_outcome_total_goals(snapshot) <= 1
+
+
+def _final_outcome_over_15(snapshot: dict[str, Any]) -> bool:
+    return _final_outcome_total_goals(snapshot) >= 2
+
+
+def _final_outcome_over_25(snapshot: dict[str, Any]) -> bool:
+    return _final_outcome_total_goals(snapshot) >= 3
+
+
+def _final_outcome_under_35(snapshot: dict[str, Any]) -> bool:
+    return _final_outcome_total_goals(snapshot) <= 3
+
+
+def _final_outcome_scoreline(home_goals: int, away_goals: int) -> Callable[[dict[str, Any]], bool]:
+    def _checker(snapshot: dict[str, Any]) -> bool:
+        return int(snapshot.get("GolsCasa") or 0) == home_goals and int(snapshot.get("GolsVisitante") or 0) == away_goals
+
+    return _checker
+
+
+def _first_available(snapshot: dict[str, Any], *fields: str) -> Any:
+    for field in fields:
+        value = snapshot.get(field)
+        if value is not None:
+            return value
+    return None
+
+
 MARKET_OPTIONS: dict[str, dict[str, Any]] = {
     "Back Under 2.5 FT": {
-        "odds_field": "BackUnder25FT",
+        "odds_fields": ["BackUnder25FT"],
         "side": "back",
         "settle": _final_outcome_under_25,
         "description": "Back no Under 2.5 FT",
     },
     "Lay Under 2.5 FT": {
-        "odds_field": "LayUnder25FT",
+        "odds_fields": ["LayUnder25FT"],
         "side": "lay",
         "settle": _final_outcome_under_25,
         "description": "Lay no Under 2.5 FT",
     },
     "Back Over 2.5 FT": {
-        "odds_field": "BackOver25FT",
+        "odds_fields": ["BackOver25FT"],
         "side": "back",
         "settle": lambda snap: not _final_outcome_under_25(snap),
         "description": "Back no Over 2.5 FT",
     },
+    "Lay Over 2.5 FT": {
+        "odds_fields": ["LayOver25FT"],
+        "side": "lay",
+        "settle": lambda snap: not _final_outcome_under_25(snap),
+        "description": "Lay no Over 2.5 FT",
+    },
+    "Back Under 1.5 FT": {
+        "odds_fields": ["BackUnder15FT", "BackUnder1_5FT"],
+        "side": "back",
+        "settle": _final_outcome_under_15,
+        "description": "Back no Under 1.5 FT",
+    },
+    "Lay Under 1.5 FT": {
+        "odds_fields": ["LayUnder15FT", "LayUnder1_5FT"],
+        "side": "lay",
+        "settle": _final_outcome_under_15,
+        "description": "Lay no Under 1.5 FT",
+    },
+    "Back Over 1.5 FT": {
+        "odds_fields": ["BackOver15FT", "BackOver1_5FT"],
+        "side": "back",
+        "settle": _final_outcome_over_15,
+        "description": "Back no Over 1.5 FT",
+    },
+    "Lay Over 1.5 FT": {
+        "odds_fields": ["LayOver15FT", "LayOver1_5FT"],
+        "side": "lay",
+        "settle": _final_outcome_over_15,
+        "description": "Lay no Over 1.5 FT",
+    },
+    "Back Over 3.5 FT": {
+        "odds_fields": ["BackOver35FT", "BackOver3_5FT"],
+        "side": "back",
+        "settle": _final_outcome_over_25,
+        "description": "Back no Over 3.5 FT",
+    },
+    "Lay Over 3.5 FT": {
+        "odds_fields": ["LayOver35FT", "LayOver3_5FT"],
+        "side": "lay",
+        "settle": _final_outcome_over_25,
+        "description": "Lay no Over 3.5 FT",
+    },
     "Back BTTS Sim": {
-        "odds_field": "BackBttsSim",
+        "odds_fields": ["BackBttsSim"],
         "side": "back",
         "settle": _final_outcome_btts,
         "description": "Back BTTS Sim",
     },
     "Back BTTS Nao": {
-        "odds_field": "BackBttsNao",
+        "odds_fields": ["BackBttsNao"],
         "side": "back",
         "settle": lambda snap: not _final_outcome_btts(snap),
         "description": "Back BTTS Nao",
     },
+    "Lay BTTS Sim": {
+        "odds_fields": ["LayBttsSim"],
+        "side": "lay",
+        "settle": _final_outcome_btts,
+        "description": "Lay BTTS Sim",
+    },
+    "Lay BTTS Nao": {
+        "odds_fields": ["LayBttsNao"],
+        "side": "lay",
+        "settle": lambda snap: not _final_outcome_btts(snap),
+        "description": "Lay BTTS Nao",
+    },
     "Back Casa FT": {
-        "odds_field": "BackMoCasaFT",
+        "odds_fields": ["BackMoCasaFT"],
         "side": "back",
         "settle": _final_outcome_home_win,
         "description": "Back mandante FT",
     },
     "Back Visitante FT": {
-        "odds_field": "BackMoVisitanteFT",
+        "odds_fields": ["BackMoVisitanteFT"],
         "side": "back",
         "settle": _final_outcome_away_win,
         "description": "Back visitante FT",
     },
     "Back Empate FT": {
-        "odds_field": "BackMoEmpateFT",
+        "odds_fields": ["BackMoEmpateFT"],
         "side": "back",
         "settle": _final_outcome_draw,
         "description": "Back empate FT",
     },
+    "Lay Casa FT": {
+        "odds_fields": ["LayMoCasaFT"],
+        "side": "lay",
+        "settle": _final_outcome_home_win,
+        "description": "Lay mandante FT",
+    },
+    "Lay Visitante FT": {
+        "odds_fields": ["LayMoVisitanteFT"],
+        "side": "lay",
+        "settle": _final_outcome_away_win,
+        "description": "Lay visitante FT",
+    },
+    "Lay Empate FT": {
+        "odds_fields": ["LayMoEmpateFT"],
+        "side": "lay",
+        "settle": _final_outcome_draw,
+        "description": "Lay empate FT",
+    },
     "Lay Over 0.5 FT": {
-        "odds_field": "LayOver05FT",
+        "odds_fields": ["LayOver05FT"],
         "side": "lay",
         "settle": _final_outcome_over_05,
         "description": "Lay over 0.5 FT",
+    },
+    "Back Correct Score 0-0": {
+        "odds_fields": ["BackCS00FT", "BackCorrectScore00FT", "BackScore00FT"],
+        "side": "back",
+        "settle": _final_outcome_scoreline(0, 0),
+        "description": "Back placar exato 0-0",
+    },
+    "Back Correct Score 1-0": {
+        "odds_fields": ["BackCS10FT", "BackCorrectScore10FT", "BackScore10FT"],
+        "side": "back",
+        "settle": _final_outcome_scoreline(1, 0),
+        "description": "Back placar exato 1-0",
+    },
+    "Back Correct Score 0-1": {
+        "odds_fields": ["BackCS01FT", "BackCorrectScore01FT", "BackScore01FT"],
+        "side": "back",
+        "settle": _final_outcome_scoreline(0, 1),
+        "description": "Back placar exato 0-1",
+    },
+    "Back Correct Score 1-1": {
+        "odds_fields": ["BackCS11FT", "BackCorrectScore11FT", "BackScore11FT"],
+        "side": "back",
+        "settle": _final_outcome_scoreline(1, 1),
+        "description": "Back placar exato 1-1",
+    },
+    "Back Correct Score 2-0": {
+        "odds_fields": ["BackCS20FT", "BackCorrectScore20FT", "BackScore20FT"],
+        "side": "back",
+        "settle": _final_outcome_scoreline(2, 0),
+        "description": "Back placar exato 2-0",
+    },
+    "Back Correct Score 0-2": {
+        "odds_fields": ["BackCS02FT", "BackCorrectScore02FT", "BackScore02FT"],
+        "side": "back",
+        "settle": _final_outcome_scoreline(0, 2),
+        "description": "Back placar exato 0-2",
+    },
+    "Back Correct Score 2-1": {
+        "odds_fields": ["BackCS21FT", "BackCorrectScore21FT", "BackScore21FT"],
+        "side": "back",
+        "settle": _final_outcome_scoreline(2, 1),
+        "description": "Back placar exato 2-1",
+    },
+    "Back Correct Score 1-2": {
+        "odds_fields": ["BackCS12FT", "BackCorrectScore12FT", "BackScore12FT"],
+        "side": "back",
+        "settle": _final_outcome_scoreline(1, 2),
+        "description": "Back placar exato 1-2",
+    },
+    "Back Correct Score 2-2": {
+        "odds_fields": ["BackCS22FT", "BackCorrectScore22FT", "BackScore22FT"],
+        "side": "back",
+        "settle": _final_outcome_scoreline(2, 2),
+        "description": "Back placar exato 2-2",
+    },
+    "Back Correct Score 3-0": {
+        "odds_fields": ["BackCS30FT", "BackCorrectScore30FT", "BackScore30FT"],
+        "side": "back",
+        "settle": _final_outcome_scoreline(3, 0),
+        "description": "Back placar exato 3-0",
+    },
+    "Back Correct Score 0-3": {
+        "odds_fields": ["BackCS03FT", "BackCorrectScore03FT", "BackScore03FT"],
+        "side": "back",
+        "settle": _final_outcome_scoreline(0, 3),
+        "description": "Back placar exato 0-3",
     },
 }
 
@@ -147,9 +316,12 @@ def _build_row(
     entry_snapshot = client.fetch_snapshot(game_id, minute=entry_period_minute, period=entry_period)
     final_snapshot = client.fetch_final_snapshot(game_id, final_minute=config.final_minute)
 
-    odd_field = market["odds_field"]
-    odd_value = entry_snapshot.get(odd_field)
-    if odd_value is None:
+    odd_fields = list(market.get("odds_fields") or [])
+    odd_field = odd_fields[0] if odd_fields else market.get("odds_field")
+    odd_value = _first_available(entry_snapshot, *odd_fields)
+    if odd_value is None and isinstance(odd_field, str):
+        odd_value = entry_snapshot.get(odd_field)
+    if odd_value is None and isinstance(odd_field, str):
         odd_value = row.get(odd_field)
     if odd_value is None:
         return {
@@ -179,6 +351,7 @@ def _build_row(
         "entry_period": entry_period,
         "entry_odd": odd_value,
         "odds_field": odd_field,
+        "odds_fields": odd_fields,
         "final_goals": final_goals,
         "final_home_goals": int(final_snapshot.get("GolsCasa") or 0),
         "final_away_goals": int(final_snapshot.get("GolsVisitante") or 0),
@@ -210,6 +383,7 @@ def run_backtest(client: ZeusClient, rows: list[dict[str, Any]], config: Backtes
                 "league": row.get("NivelDados") or row.get("campeonato") or "",
                 "home_team": row.get("NomeCasa") or row.get("mandante") or "",
                 "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
+                "odds_fields": market.get("odds_fields") or [],
                 "status": f"erro: {exc}",
             }
 
@@ -284,9 +458,12 @@ async def _build_row_async(
     final_task = client.fetch_final_snapshot(game_id, final_minute=config.final_minute)
     entry_snapshot, final_snapshot = await asyncio.gather(entry_task, final_task)
 
-    odd_field = market["odds_field"]
-    odd_value = entry_snapshot.get(odd_field)
-    if odd_value is None:
+    odd_fields = list(market.get("odds_fields") or [])
+    odd_field = odd_fields[0] if odd_fields else market.get("odds_field")
+    odd_value = _first_available(entry_snapshot, *odd_fields)
+    if odd_value is None and isinstance(odd_field, str):
+        odd_value = entry_snapshot.get(odd_field)
+    if odd_value is None and isinstance(odd_field, str):
         odd_value = row.get(odd_field)
     if odd_value is None:
         return {
