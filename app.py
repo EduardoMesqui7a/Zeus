@@ -5,6 +5,7 @@ import hashlib
 from datetime import datetime
 import json
 import os
+import re
 
 import pandas as pd
 import plotly.express as px
@@ -22,6 +23,33 @@ from src.query_parser import (
 )
 from src.session_store import clear_saved_session, load_saved_session, save_token
 from src.zeus_client import AsyncZeusClient, ZeusClient, ZeusClientError
+
+
+SAFE_M500_FIELDS = {
+    "Minuto",
+    "NivelDados",
+    "DataJogo",
+}
+
+QUERY_TERM_SPLIT = r"(?i)\band\b"
+
+
+def split_query_terms(query: str) -> list[str]:
+    terms = [part.strip() for part in re.split(QUERY_TERM_SPLIT, query or "") if part.strip()]
+    return terms
+
+
+def sanitize_query_terms(query: str) -> tuple[str, list[str]]:
+    safe_terms: list[str] = []
+    stripped_terms: list[str] = []
+    for term in split_query_terms(query):
+        m500_fields = re.findall(r"(?i)\bm500\.([A-Za-z0-9_]+)", term)
+        if m500_fields and any(field not in SAFE_M500_FIELDS for field in m500_fields):
+            stripped_terms.append(term)
+            continue
+        safe_terms.append(term)
+    safe_query = " and ".join(safe_terms).strip()
+    return safe_query, stripped_terms
 
 
 st.set_page_config(
@@ -307,13 +335,16 @@ def load_backtest_report(
     entry_minute: int,
     final_minute: int,
 ) -> dict:
-    full_query = base_query
-    if final_filter.strip():
-        full_query = f"({base_query}) and ({final_filter})" if base_query else final_filter.strip()
+    sanitized_base, stripped_base = sanitize_query_terms(base_query)
+    sanitized_final, stripped_final = sanitize_query_terms(final_filter)
+    full_query = sanitized_base
+    if sanitized_final.strip():
+        full_query = f"({sanitized_base}) and ({sanitized_final})" if sanitized_base else sanitized_final.strip()
+    stripped_terms = stripped_base + stripped_final
 
     async def _load() -> dict:
         async with AsyncZeusClient(auth_token=_token) as async_client:
-            base_count_task = async_client.count(base_query) if base_query else asyncio.sleep(0, result={"count": 0})
+            base_count_task = async_client.count(sanitized_base) if sanitized_base else asyncio.sleep(0, result={"count": 0})
             full_rows_task = async_client.search_all(
                 full_query,
                 max_pages=max_pages,
@@ -336,6 +367,7 @@ def load_backtest_report(
                 "lucy_rows": lucy_rows,
                 "backtest": backtest,
                 "full_query": full_query,
+                "stripped_terms": stripped_terms,
             }
 
     return _run_async(_load())
@@ -496,8 +528,9 @@ def main() -> None:
             height=220,
         )
         query_final = st.text_area(
-            "Filtro final adicional",
-            value='(m500.GolsTotal <= 2)',
+            "Filtro adicional seguro",
+            value="",
+            help="Use apenas termos que nao dependem do resultado final. O app remove automaticamente qualquer m500. que gere look-ahead.",
             height=90,
         )
         market_label = st.selectbox("Mercado", list(MARKET_OPTIONS.keys()), index=0)
@@ -564,6 +597,12 @@ def main() -> None:
             """,
             unsafe_allow_html=True,
         )
+
+        if report.get("stripped_terms"):
+            st.warning(
+                "Removi termos com informação futura da consulta antes de pesquisar. "
+                "Isso evita look-ahead bias e explica por que o winrate não deve ser 100% só por causa do resultado final."
+            )
 
         render_metrics(report["backtest"]["metrics"])
         render_charts(report["backtest"]["result_df"])
