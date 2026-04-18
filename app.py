@@ -369,10 +369,23 @@ def main() -> None:
             st.rerun()
 
         token = st.session_state.get("zeus_auth_token", "").strip()
-        query = st.text_area(
-            "Query Zeus",
-            value='(m500.Minuto = 500) and (m20.Minuto = 20) and (m20.GolsTotal = 0)',
+        query_base = st.text_area(
+            "Query base",
+            value=(
+                '(m500.Minuto = 500) and (m500.NivelDados = "Gold") and (m500.DataJogo >= "2022-01-01") '
+                'and (m20.Minuto = 20) and (m20.GolsTotal = 0) and (m20.CartaoVermelhoCasa = 0) '
+                'and (m20.CartaoVermelhoVisitante = 0) and (m20.ChutesNoGolc1c2c3Total <= 2) '
+                'and (m20.Pressao1Casa + m20.Pressao1Visitante <= 18) and (m20.Pressao2Casa + m20.Pressao2Visitante <= 22) '
+                'and (m20.GraficoCasa + m20.GraficoVisitante <= 25) and (m20.BackUnder25FT between 1.55 and 2.10) '
+                'and (m20.LayOver25FT >= 1.40) and (m35.Minuto = 35) and (m35.GolsTotal <= 1) '
+                'and (m35.BackUnder25FT >= m20.BackUnder25FT)'
+            ),
             height=220,
+        )
+        query_final = st.text_area(
+            "Filtro final adicional",
+            value='(m500.GolsTotal <= 2)',
+            height=90,
         )
         market_label = st.selectbox("Mercado", list(MARKET_OPTIONS.keys()), index=0)
         stake = st.number_input("Stake por entrada", min_value=1.0, value=100.0, step=10.0)
@@ -389,8 +402,13 @@ def main() -> None:
         if not token.strip():
             st.error("Entre com email/senha acima ou informe um token opcional.")
             return
+        base_query = query_base.strip()
+        final_filter = query_final.strip()
+        full_query = base_query
+        if final_filter:
+            full_query = f"({base_query}) and ({final_filter})" if base_query else final_filter
         try:
-            entry_minute = int(entry_override) if entry_override.strip() else infer_entry_minute(query)
+            entry_minute = int(entry_override) if entry_override.strip() else infer_entry_minute(full_query)
             final_minute = int(final_override) if final_override.strip() else 500
         except ValueError:
             st.error("Os minutos precisam ser numeros inteiros.")
@@ -398,8 +416,9 @@ def main() -> None:
 
         with st.spinner("Consultando Zeus e Lucy..."):
             try:
-                count_info = client.count(query)
-                lucy_rows = client.search_all(query, max_pages=int(max_pages), max_games=int(max_games))
+                base_count_info = client.count(base_query) if base_query else {"count": 0}
+                count_info = client.count(full_query)
+                lucy_rows = client.search_all(full_query, max_pages=int(max_pages), max_games=int(max_games))
                 config = BacktestConfig(
                     market_label=market_label,
                     stake=float(stake),
@@ -418,10 +437,14 @@ def main() -> None:
         st.markdown(
             f"""
             <div class="note-box">
-                <strong>Query recebida:</strong> {query}<br/>
-                <strong>Minutos detectados:</strong> {', '.join(map(str, extract_minute_refs(query))) or 'nenhum'}<br/>
+                <strong>Query base:</strong> {base_query}<br/>
+                <strong>Filtro final:</strong> {final_filter or 'nenhum'}<br/>
+                <strong>Query completa:</strong> {full_query}<br/>
+                <strong>Minutos detectados:</strong> {', '.join(map(str, extract_minute_refs(full_query))) or 'nenhum'}<br/>
                 <strong>Entry minute usado:</strong> {backtest['config'].entry_minute}<br/>
-                <strong>Total no Zeus:</strong> {count_info.get('count', 0)}<br/>
+                <strong>Universo base:</strong> {base_count_info.get('count', 0)}<br/>
+                <strong>Universo final:</strong> {count_info.get('count', 0)}<br/>
+                <strong>Conversão:</strong> {((count_info.get('count', 0) / base_count_info.get('count', 1)) * 100.0) if base_count_info.get('count', 0) else 0:.2f}%<br/>
                 <strong>Jogos carregados:</strong> {len(lucy_rows)}<br/>
                 <strong>Mercado:</strong> {market_label}
             </div>
