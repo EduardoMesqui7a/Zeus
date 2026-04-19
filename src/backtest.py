@@ -72,6 +72,15 @@ def _final_outcome_scoreline(home_goals: int, away_goals: int) -> Callable[[dict
     return _checker
 
 
+def _final_outcome_not_scoreline(home_goals: int, away_goals: int) -> Callable[[dict[str, Any]], bool]:
+    scoreline = _final_outcome_scoreline(home_goals, away_goals)
+
+    def _checker(snapshot: dict[str, Any]) -> bool:
+        return not scoreline(snapshot)
+
+    return _checker
+
+
 def _final_outcome_any_other_home_win(snapshot: dict[str, Any]) -> bool:
     home_goals = int(snapshot.get("GolsCasa") or 0)
     away_goals = int(snapshot.get("GolsVisitante") or 0)
@@ -338,6 +347,12 @@ MARKET_OPTIONS: dict[str, dict[str, Any]] = {
         "side": "back",
         "settle": _final_outcome_scoreline(0, 3),
         "description": "Back placar exato 0-3",
+    },
+    "Lay Correct Score 0-3": {
+        "odds_fields": ["LayCS03FT", "LayCorrectScore03FT", "LayScore03FT"],
+        "side": "lay",
+        "settle": _final_outcome_not_scoreline(0, 3),
+        "description": "Lay placar exato 0-3",
     },
 }
 
