@@ -262,25 +262,21 @@ class ZeusClient:
         return data
 
     def fetch_final_snapshot(self, game_id: str, final_minute: int = 500) -> dict[str, Any]:
-        try:
-            detail = self.fetch_match_detail(game_id)
-            if detail:
-                return detail
-        except Exception:
-            pass
-
         if final_minute == 500:
+            try:
+                detail = self.fetch_match_detail(game_id)
+                if detail:
+                    return detail
+            except Exception:
+                pass
             start_period, start_minute = 2, 90
         else:
             start_period, start_minute = absolute_to_period_minute(final_minute)
-            if start_period == 1:
-                start_period, start_minute = 2, 90
 
         attempts: list[tuple[int, int]] = []
-        if start_period == 2:
-            attempts.extend((2, minute) for minute in range(int(start_minute), 44, -1))
-        else:
-            attempts.extend((1, minute) for minute in range(int(start_minute), 0, -1))
+        attempts.extend((start_period, minute) for minute in range(int(start_minute), 0, -1))
+        if final_minute == 500 and start_period == 2:
+            attempts = [(2, minute) for minute in range(90, 44, -1)]
 
         last_error: Exception | None = None
         for period, minute in attempts:
@@ -563,25 +559,21 @@ class AsyncZeusClient:
         return data
 
     async def fetch_final_snapshot(self, game_id: str, final_minute: int = 500) -> dict[str, Any]:
-        try:
-            detail = await self.fetch_match_detail(game_id)
-            if detail:
-                return detail
-        except Exception:
-            pass
-
         if final_minute == 500:
+            try:
+                detail = await self.fetch_match_detail(game_id)
+                if detail:
+                    return detail
+            except Exception:
+                pass
             start_period, start_minute = 2, 90
         else:
             start_period, start_minute = absolute_to_period_minute(final_minute)
-            if start_period == 1:
-                start_period, start_minute = 2, 90
 
         attempts: list[tuple[int, int]] = []
-        if start_period == 2:
-            attempts.extend((2, minute) for minute in range(int(start_minute), 44, -1))
-        else:
-            attempts.extend((1, minute) for minute in range(int(start_minute), 0, -1))
+        attempts.extend((start_period, minute) for minute in range(int(start_minute), 0, -1))
+        if final_minute == 500 and start_period == 2:
+            attempts = [(2, minute) for minute in range(90, 44, -1)]
 
         last_error: Exception | None = None
         for period, minute in attempts:
