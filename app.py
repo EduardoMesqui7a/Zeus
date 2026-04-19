@@ -203,9 +203,9 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
         "Semestral": ("6MS", "Semestre"),
         "Anual": ("YS", "Ano"),
     }
-    freq, period_label = period_config.get(block_period, ("MS", "Mes"))
+    freq, period_label = period_config.get(block_period, period_config["Mensal"])
 
-    st.subheader(f"Curva, distribuicao e profit por {period_label.lower()}")
+    st.subheader("Curva e distribuicao")
     left, right = st.columns((1.4, 1))
 
     with left:
@@ -238,49 +238,61 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
         hist.update_layout(height=420, margin=dict(l=0, r=0, t=40, b=0), template="plotly_white")
         st.plotly_chart(hist, use_container_width=True)
 
-    block_df = results_df.copy()
-    if getattr(block_df["match_datetime"].dt, "tz", None) is not None:
-        block_df["match_datetime"] = block_df["match_datetime"].dt.tz_convert(None)
-    grouped = (
-        block_df.groupby(pd.Grouper(key="match_datetime", freq=freq))
-        .agg(profit=("profit", "sum"), bets=("profit", "size"))
-        .reset_index()
-        .sort_values("match_datetime")
-    )
-    if not grouped.empty:
-        fig_blocks = go.Figure()
-        fig_blocks.add_trace(
-            go.Bar(
-                x=grouped["match_datetime"],
-                y=grouped["profit"],
-                name="Lucro do bloco",
-                marker_color=["#0f766e" if value >= 0 else "#b91c1c" for value in grouped["profit"]],
+    with st.container():
+        period_choice = st.selectbox(
+            "Agrupar profit",
+            options=["Mensal", "Trimestral", "Semestral", "Anual"],
+            index=["Mensal", "Trimestral", "Semestral", "Anual"].index(block_period)
+            if block_period in {"Mensal", "Trimestral", "Semestral", "Anual"}
+            else 0,
+            key="zeus_profit_period",
+            help="Escolha como agrupar o lucro: por mes, trimestre, semestre ou ano.",
+        )
+        freq, period_label = period_config.get(period_choice, period_config["Mensal"])
+
+        block_df = results_df.copy()
+        if getattr(block_df["match_datetime"].dt, "tz", None) is not None:
+            block_df["match_datetime"] = block_df["match_datetime"].dt.tz_convert(None)
+        grouped = (
+            block_df.groupby(pd.Grouper(key="match_datetime", freq=freq))
+            .agg(profit=("profit", "sum"), bets=("profit", "size"))
+            .reset_index()
+            .sort_values("match_datetime")
+        )
+        if not grouped.empty:
+            fig_blocks = go.Figure()
+            fig_blocks.add_trace(
+                go.Bar(
+                    x=grouped["match_datetime"],
+                    y=grouped["profit"],
+                    name="Lucro do bloco",
+                    marker_color=["#0f766e" if value >= 0 else "#b91c1c" for value in grouped["profit"]],
+                )
             )
-        )
-        fig_blocks.add_trace(
-            go.Scatter(
-                x=grouped["match_datetime"],
-                y=grouped["profit"].cumsum(),
-                mode="lines+markers",
-                name="Acumulado por bloco",
-                line=dict(color="#1d4ed8", width=2),
-                yaxis="y2",
+            fig_blocks.add_trace(
+                go.Scatter(
+                    x=grouped["match_datetime"],
+                    y=grouped["profit"].cumsum(),
+                    mode="lines+markers",
+                    name="Acumulado por bloco",
+                    line=dict(color="#1d4ed8", width=2),
+                    yaxis="y2",
+                )
             )
-        )
-        fig_blocks.update_layout(
-            height=380,
-            template="plotly_white",
-            margin=dict(l=0, r=0, t=30, b=0),
-            barmode="relative",
-            legend=dict(orientation="h"),
-            xaxis_title=period_label,
-            yaxis_title="Lucro no bloco",
-            yaxis2=dict(overlaying="y", side="right", title="Acumulado"),
-        )
-        st.subheader(f"Profit por {period_label.lower()}")
-        st.plotly_chart(fig_blocks, use_container_width=True)
-        grouped = grouped.rename(columns={"match_datetime": period_label})
-        st.dataframe(grouped, use_container_width=True, hide_index=True)
+            fig_blocks.update_layout(
+                height=380,
+                template="plotly_white",
+                margin=dict(l=0, r=0, t=30, b=0),
+                barmode="relative",
+                legend=dict(orientation="h"),
+                xaxis_title=period_label,
+                yaxis_title="Lucro no bloco",
+                yaxis2=dict(overlaying="y", side="right", title="Acumulado"),
+            )
+            st.subheader(f"Profit por {period_label.lower()}")
+            st.plotly_chart(fig_blocks, use_container_width=True)
+            grouped = grouped.rename(columns={"match_datetime": period_label})
+            st.dataframe(grouped, use_container_width=True, hide_index=True)
 
 
 def render_game_timeline(client: ZeusClient, game_id: str, market_field: str) -> None:
@@ -695,13 +707,7 @@ def main() -> None:
             )
 
         render_metrics(report["backtest"]["metrics"])
-        profit_period = st.selectbox(
-            "Profit por periodo",
-            options=["Mensal", "Trimestral", "Semestral", "Anual"],
-            index=0,
-            help="Escolha como agrupar o lucro: por mes, trimestre, semestre ou ano.",
-        )
-        render_charts(report["backtest"]["result_df"], block_period=profit_period)
+        render_charts(report["backtest"]["result_df"], block_period="Mensal")
 
         st.subheader("Resultados")
         display_columns = [
