@@ -451,11 +451,11 @@ def _build_row(
         }
     exit_odd = float(exit_odd)
 
-    won = bool(market["settle"](final_snapshot))
+    market_hit = bool(market["settle"](final_snapshot))
     if market["side"] == "back":
-        profit, risk = _apply_back_profit(config.stake, odd_value, won, config.commission)
+        profit, risk = _apply_back_profit(config.stake, odd_value, market_hit, config.commission)
     else:
-        profit, risk = _apply_lay_profit(config.stake, odd_value, won, config.commission)
+        profit, risk = _apply_lay_profit(config.stake, odd_value, market_hit, config.commission)
 
     final_goals = _final_outcome_total_goals(final_snapshot)
     match_label = f"{pd.to_datetime(row.get('DataJogo'), errors='coerce').strftime('%Y-%m-%d') if pd.notna(pd.to_datetime(row.get('DataJogo'), errors='coerce')) else 'sem-data'} | {row.get('NomeCasa')} x {row.get('NomeVisitante')} | {game_id}"
@@ -478,7 +478,8 @@ def _build_row(
         "final_goals": final_goals,
         "final_home_goals": int(final_snapshot.get("GolsCasa") or 0),
         "final_away_goals": int(final_snapshot.get("GolsVisitante") or 0),
-        "won": won,
+        "won": profit >= 0,
+        "market_hit": market_hit,
         "profit": float(profit),
         "stake_risked": float(risk),
         "result_text": result_text,
@@ -552,7 +553,7 @@ def _finalize_backtest(
     total_profit = float(result_df["profit"].sum())
     total_risked = float(result_df["stake_risked"].sum())
     bets = int(len(result_df))
-    wins = int(result_df["won"].sum())
+    wins = int(result_df["won"].fillna(False).sum())
     metrics = {
         "matches": len(rows),
         "bets": bets,
@@ -617,11 +618,11 @@ async def _build_row_async(
         }
     exit_odd = float(exit_odd)
 
-    won = bool(market["settle"](final_snapshot))
+    market_hit = bool(market["settle"](final_snapshot))
     if market["side"] == "back":
-        profit, risk = _apply_back_profit(config.stake, odd_value, won, config.commission)
+        profit, risk = _apply_back_profit(config.stake, odd_value, market_hit, config.commission)
     else:
-        profit, risk = _apply_lay_profit(config.stake, odd_value, won, config.commission)
+        profit, risk = _apply_lay_profit(config.stake, odd_value, market_hit, config.commission)
 
     final_goals = _final_outcome_total_goals(final_snapshot)
     match_label = f"{pd.to_datetime(row.get('DataJogo'), errors='coerce').strftime('%Y-%m-%d') if pd.notna(pd.to_datetime(row.get('DataJogo'), errors='coerce')) else 'sem-data'} | {row.get('NomeCasa')} x {row.get('NomeVisitante')} | {game_id}"
@@ -643,7 +644,8 @@ async def _build_row_async(
         "final_goals": final_goals,
         "final_home_goals": int(final_snapshot.get("GolsCasa") or 0),
         "final_away_goals": int(final_snapshot.get("GolsVisitante") or 0),
-        "won": won,
+        "won": profit >= 0,
+        "market_hit": market_hit,
         "profit": float(profit),
         "stake_risked": float(risk),
         "result_text": result_text,

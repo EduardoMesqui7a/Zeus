@@ -1,6 +1,13 @@
 import unittest
 
-from src.backtest import MARKET_OPTIONS, BacktestConfig, _apply_back_profit, _apply_lay_profit, _build_row
+from src.backtest import (
+    MARKET_OPTIONS,
+    BacktestConfig,
+    _apply_back_profit,
+    _apply_lay_profit,
+    _build_row,
+    _finalize_backtest,
+)
 
 
 class FakeClient:
@@ -36,13 +43,18 @@ class MarketSettlementTests(unittest.TestCase):
         for label, market in MARKET_OPTIONS.items():
             config = BacktestConfig(market_label=label, stake=100.0, commission=0.0, entry_minute=35, final_minute=80)
             result = _build_row(client, base_row, config, market)
-            won = bool(market["settle"](final_snapshot))
-            self.assertEqual(result["won"], won, msg=label)
+            selection_hit = bool(market["settle"](final_snapshot))
+            self.assertEqual(result["market_hit"], selection_hit, msg=label)
             if market["side"] == "back":
-                expected_profit, _ = _apply_back_profit(config.stake, 2.0, won, config.commission)
+                expected_profit, _ = _apply_back_profit(config.stake, 2.0, selection_hit, config.commission)
             else:
-                expected_profit, _ = _apply_lay_profit(config.stake, 2.0, won, config.commission)
+                expected_profit, _ = _apply_lay_profit(config.stake, 2.0, selection_hit, config.commission)
             self.assertAlmostEqual(result["profit"], expected_profit, places=7, msg=label)
+            self.assertEqual(result["won"], result["profit"] >= 0, msg=label)
+
+            summary = _finalize_backtest([base_row], [result], config)
+            self.assertEqual(summary["metrics"]["wins"], int(result["won"]), msg=label)
+            self.assertAlmostEqual(summary["metrics"]["win_rate"], 100.0 if result["won"] else 0.0, places=7, msg=label)
 
 
 if __name__ == "__main__":
