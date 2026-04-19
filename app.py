@@ -837,8 +837,10 @@ def render_optimization_tab(
 
                 for index, combo in enumerate(combos, start=1):
                     status.write(f"Executando {index}/{len(combos)} — entrada {combo['entry_minute']} / saída {combo['final_minute']}")
-                    train_query = add_date_filter(combo["base_query"], train_start_text, train_end_text)
-                    train_filter = add_date_filter(combo["final_filter"], train_start_text, train_end_text)
+                    sanitized_base, _ = sanitize_query_terms(str(combo["base_query"]))
+                    sanitized_final, _ = sanitize_query_terms(str(combo["final_filter"]))
+                    train_query = add_date_filter(sanitized_base, train_start_text, train_end_text)
+                    train_filter = add_date_filter(sanitized_final, train_start_text, train_end_text)
                     full_train_query = _join_query_parts(train_query, train_filter)
                     try:
                         train_rows = await _load_rows(full_train_query)
@@ -901,8 +903,10 @@ def render_optimization_tab(
                 if validation_enabled and not ranking_df.empty:
                     for index, record in enumerate(ranking_df.head(int(top_n_validation)).to_dict("records"), start=1):
                         status.write(f"Validando {index}/{min(int(top_n_validation), len(ranking_df))} — entrada {record['entry_minute']} / saída {record['final_minute']}")
-                        validation_query = add_date_filter(record["base_query"], validation_start_text, validation_end_text)
-                        validation_filter = add_date_filter(record["final_filter"], validation_start_text, validation_end_text)
+                        sanitized_base, _ = sanitize_query_terms(str(record["base_query"]))
+                        sanitized_final, _ = sanitize_query_terms(str(record["final_filter"]))
+                        validation_query = add_date_filter(sanitized_base, validation_start_text, validation_end_text)
+                        validation_filter = add_date_filter(sanitized_final, validation_start_text, validation_end_text)
                         full_validation_query = _join_query_parts(validation_query, validation_filter)
                         try:
                             validation_rows = await _load_rows(full_validation_query)
