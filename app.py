@@ -313,7 +313,10 @@ def render_timeline_frame(timeline: list[dict[str, object]], market_field: str) 
 def _run_async(coro):
     try:
         return asyncio.run(coro)
-    except RuntimeError:
+    except RuntimeError as exc:
+        message = str(exc).lower()
+        if "running event loop" not in message:
+            raise
         loop = asyncio.new_event_loop()
         try:
             return loop.run_until_complete(coro)
