@@ -117,6 +117,12 @@ def inject_styles() -> None:
                 line-height: 0.95;
                 margin: 0;
                 color: #0f172a;
+                font-weight: 900;
+                letter-spacing: -0.04em;
+                text-transform: uppercase;
+            }
+            .title span {
+                color: #0f766e;
             }
             .subtitle {
                 color: #516079;
@@ -150,19 +156,6 @@ def inject_styles() -> None:
             }
             .metric-profit-negative {
                 color: #b91c1c;
-            }
-            .metric-profit-positive {
-                color: #0f766e;
-            }
-            .metric-profit-negative {
-                color: #b91c1c;
-            }
-            .note-box {
-                border-radius: 18px;
-                background: rgba(15,118,110,0.08);
-                border: 1px solid rgba(15,118,110,0.15);
-                padding: 0.9rem 1rem;
-                color: #134e4a;
             }
         </style>
         """,
@@ -490,31 +483,6 @@ def render_timeline_frame(timeline: list[dict[str, object]], market_field: str) 
 
 
 def render_report_view(report: dict, token: str, market_label: str, base_query: str, final_filter: str) -> None:
-    st.markdown(
-        f"""
-        <div class="note-box">
-            <strong>Consulta da estratégia:</strong> {base_query}<br/>
-            <strong>Verificação final:</strong> {final_filter or 'nenhuma'}<br/>
-            <strong>Query completa:</strong> {report['full_query']}<br/>
-            <strong>Verificação final segura:</strong> {report.get('sanitized_final_filter') or 'nenhuma'}<br/>
-            <strong>Minutos detectados:</strong> {', '.join(map(str, extract_minute_refs(report['full_query']))) or 'nenhum'}<br/>
-            <strong>Entry minute usado:</strong> {report['backtest']['config'].entry_minute}<br/>
-            <strong>Final minute usado:</strong> {report['backtest']['config'].final_minute}<br/>
-            <strong>Universo base:</strong> {report['base_count_info'].get('count', 0)}<br/>
-            <strong>Universo final:</strong> {report['count_info'].get('count', 0)}<br/>
-            <strong>Conversão:</strong> {((report['count_info'].get('count', 0) / report['base_count_info'].get('count', 1)) * 100.0) if report['base_count_info'].get('count', 0) else 0:.2f}%<br/>
-            <strong>Jogos carregados:</strong> {len(report['lucy_rows'])}<br/>
-            <strong>Mercado:</strong> {market_label}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if report.get("stripped_terms"):
-        st.warning(
-            "Removi termos com informação futura da consulta da estratégia antes de pesquisar. "
-            "Isso evita look-ahead bias e explica por que a taxa de acerto não deve ser 100% só por causa do resultado final."
-        )
 
     render_metrics(report["backtest"]["metrics"])
     render_charts(report["backtest"]["result_df"], block_period=st.session_state.get("zeus_profit_period", "Mensal"))
@@ -670,10 +638,10 @@ def main() -> None:
         """
         <div class="hero">
             <div class="kicker">Zeus + Lucy</div>
-            <h1 class="title">Backtester direto nos endpoints internos</h1>
+            <h1 class="title">BACKTESTE <span>ZEUS / LUCY</span></h1>
             <p class="subtitle">
-                Rode uma query Zeus, pagina os jogos na Lucy, puxe snapshots por minuto e receba
-                ROI, winrate, drawdown, curva de capital e leitura detalhada por jogo.
+                Fa?a consultas no Zeus, pagine os jogos na Lucy, puxe snapshots por minuto e obtenha
+                ROI, taxa de acerto, drawdown, curva de capital e leitura detalhada por jogo.
             </p>
         </div>
         """,
@@ -862,7 +830,7 @@ def main() -> None:
                     final_filter,
                     market_label,
                     float(stake),
-                    float(commission),
+                    float(commission_pct) / 100.0,
                     int(max_pages),
                     int(max_games),
                     entry_minute,
@@ -884,32 +852,6 @@ def main() -> None:
         }
         st.session_state.setdefault("zeus_profit_period", "Mensal")
         st.rerun()
-
-        st.markdown(
-            f"""
-            <div class="note-box">
-                <strong>Consulta da estrat?gia:</strong> {base_query}<br/>
-                <strong>Verifica??o final:</strong> {final_filter or 'nenhuma'}<br/>
-                <strong>Query completa:</strong> {report['full_query']}<br/>
-                <strong>Verifica??o final segura:</strong> {report.get('sanitized_final_filter') or 'nenhuma'}<br/>
-                <strong>Minutos detectados:</strong> {', '.join(map(str, extract_minute_refs(report['full_query']))) or 'nenhum'}<br/>
-                <strong>Entry minute usado:</strong> {report['backtest']['config'].entry_minute}<br/>
-                <strong>Final minute usado:</strong> {report['backtest']['config'].final_minute}<br/>
-                <strong>Universo base:</strong> {report['base_count_info'].get('count', 0)}<br/>
-                <strong>Universo final:</strong> {report['count_info'].get('count', 0)}<br/>
-                <strong>Conversão:</strong> {((report['count_info'].get('count', 0) / report['base_count_info'].get('count', 1)) * 100.0) if report['base_count_info'].get('count', 0) else 0:.2f}%<br/>
-                <strong>Jogos carregados:</strong> {len(report['lucy_rows'])}<br/>
-                <strong>Mercado:</strong> {market_label}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        if report.get("stripped_terms"):
-            st.warning(
-                "Removi termos com informação futura da consulta da estratégia antes de pesquisar. "
-                "Isso evita look-ahead bias e explica por que o winrate não deve ser 100% só por causa do resultado final."
-            )
 
         render_metrics(report["backtest"]["metrics"])
         render_charts(report["backtest"]["result_df"], block_period="Mensal")
