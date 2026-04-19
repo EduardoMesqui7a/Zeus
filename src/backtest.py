@@ -360,8 +360,11 @@ def _apply_back_profit(stake: float, odd: float, won: bool, commission: float) -
 
 
 def _apply_lay_profit(stake: float, odd: float, won: bool, commission: float) -> tuple[float, float]:
-    liability = stake * (odd - 1.0)
-    profit = -liability if won else stake
+    if odd <= 1.0:
+        raise ZeusClientError("Odd invalida para lay.")
+    liability = stake
+    lay_stake = liability / (odd - 1.0)
+    profit = -liability if won else lay_stake
     if profit > 0:
         profit *= 1.0 - commission
     risk = liability
@@ -378,12 +381,14 @@ def _cashout_back_profit(stake: float, entry_odd: float, exit_odd: float, commis
 
 
 def _cashout_lay_profit(stake: float, entry_odd: float, exit_odd: float, commission: float) -> tuple[float, float]:
-    if exit_odd <= 0:
+    if entry_odd <= 1.0 or exit_odd <= 0:
         raise ZeusClientError("Odd de saida invalida para cashout lay.")
-    profit = stake * (1.0 - (entry_odd / exit_odd))
+    liability = stake
+    lay_stake = liability / (entry_odd - 1.0)
+    profit = lay_stake * (1.0 - (entry_odd / exit_odd))
     if profit > 0:
         profit *= 1.0 - commission
-    return profit, stake * (entry_odd - 1.0)
+    return profit, liability
 
 
 def _normalize_datetime(value: Any) -> pd.Timestamp:
