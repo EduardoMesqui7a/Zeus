@@ -19,15 +19,8 @@ from src.backtest import (
     run_backtest_async,
 )
 from src.optimization import (
-    add_date_filter,
     build_int_range,
-    build_snapshot_filter_groups,
-    candidate_product_with_snapshot_filters,
-    expand_query_variants_with_filter_groups,
-    infer_snapshot_field_keys,
-    SNAPSHOT_FIELD_PRESETS,
     sort_optimization_records,
-    split_query_variants,
 )
 from src.query_parser import (
     extract_minute_refs,
@@ -727,133 +720,92 @@ def parse_optional_date(text: str) -> str:
 
 
 
+
+
 def render_optimization_tab(
     token: str,
-    strategy_query: str,
-    final_check: str,
-    market_label: str,
-    stake: float,
-    commission_decimal: float,
-    max_pages: int,
-    max_games: int,
-    entry_minute_default: int,
-    final_minute_default: int,
+    manual_report: dict | None,
+    manual_inputs: dict | None,
 ) -> None:
     st.subheader("Otimiza??o")
-    st.caption("Vamos varrer par?metros, comparar combina??es e ranquear as melhores estrat?gias.")
+    st.caption("A base ? sempre a ?ltima pesquisa carregada no Backtest manual. Aqui a gente s? varia os minutos de entrada e sa?da.")
 
-    field_meta_map = {str(field["key"]): field for field in SNAPSHOT_FIELD_PRESETS}
-    default_snapshot_fields = infer_snapshot_field_keys(strategy_query, SNAPSHOT_FIELD_PRESETS)
+    manual_report = manual_report if isinstance(manual_report, dict) else {}
+    manual_inputs = manual_inputs if isinstance(manual_inputs, dict) else {}
+    lucy_rows = list(manual_report.get("lucy_rows") or [])
+    backtest_bundle = manual_report.get("backtest") if isinstance(manual_report.get("backtest"), dict) else {}
+    manual_metrics = backtest_bundle.get("metrics") if isinstance(backtest_bundle, dict) else {}
+    manual_config = backtest_bundle.get("config")
+
+    if not lucy_rows:
+        st.info("Execute um backtest manual primeiro. A otimiza??o usa exatamente os mesmos jogos j? carregados ali.")
+        return
+
+    base_query = str(manual_inputs.get("base_query") or "").strip()
+    final_filter = str(manual_inputs.get("final_filter") or "").strip()
+    market_label = str(manual_inputs.get("market_label") or getattr(manual_config, "market_label", "") or "")
+    stake_value = float(getattr(manual_config, "stake", 100.0) or 100.0)
+    commission_value = float(getattr(manual_config, "commission", 0.065) or 0.065)
+    entry_default = int(manual_inputs.get("entry_minute") or getattr(manual_config, "entry_minute", 20) or 20)
+    final_default = int(manual_inputs.get("final_minute") or getattr(manual_config, "final_minute", 500) or 500)
+
+    top_left, top_right = st.columns(2)
+    with top_left:
+        st.markdown("#### Base carregada")
+        st.code(base_query or "(consulta n?o dispon?vel)", language="text")
+        if final_filter:
+            st.code(final_filter, language="text")
+    with top_right:
+        st.markdown("#### Resumo do backtest manual")
+        summary_cols = st.columns(2)
+        with summary_cols[0]:
+            st.metric("Jogos base", len(lucy_rows))
+            st.metric("Mercado", market_label or "n/a")
+        with summary_cols[1]:
+            st.metric("Profit", f"R$ {float((manual_metrics or {}).get('total_profit', 0.0)):.2f}")
+            st.metric("Bets", int((manual_metrics or {}).get("bets", 0) or 0))
 
     with st.form("zeus_optimization_form", clear_on_submit=False):
-        st.markdown("#### Entradas principais")
+        st.markdown("#### Varia??o de minutos")
         col_left, col_right = st.columns(2)
-
         with col_left:
-            strategy_variants_text = st.text_area(
-                "Consulta da estrat?gia",
-                value=strategy_query,
-                height=210,
-                help="Uma consulta por bloco. Separe variantes com --- ou com linhas em branco.",
-            )
-            final_variants_text = st.text_area(
-                "Verifica??o final",
-                value=final_check,
-                height=120,
-                help="Use uma regra por bloco. Se houver s? uma, ela vale para todas as combina??es.",
-            )
-            market_label_opt = st.selectbox(
-                "Mercado",
-                list(MARKET_OPTIONS.keys()),
-                index=list(MARKET_OPTIONS.keys()).index(market_label) if market_label in MARKET_OPTIONS else 0,
-            )
-            min_bets = st.number_input("M?nimo de bets", min_value=1, value=20, step=1)
-            combo_limit = st.number_input("Limite de combina??es", min_value=1, value=200, step=10)
-            top_n_validation = st.number_input("Top N para validar", min_value=1, value=20, step=1)
-
-        with col_right:
             entry_start = st.number_input(
-                "Minuto de entrada - in?cio", min_value=1, max_value=500, value=max(1, entry_minute_default - 10), step=1
+                "Minuto de entrada - in?cio",
+                min_value=1,
+                max_value=500,
+                value=max(1, entry_default - 10),
+                step=1,
             )
             entry_end = st.number_input(
-                "Minuto de entrada - fim", min_value=1, max_value=500, value=min(500, entry_minute_default + 10), step=1
+                "Minuto de entrada - fim",
+                min_value=1,
+                max_value=500,
+                value=min(500, entry_default + 10),
+                step=1,
             )
             entry_step = st.number_input("Minuto de entrada - passo", min_value=1, max_value=100, value=1, step=1)
+        with col_right:
             final_start = st.number_input(
-                "Minuto de sa?da - in?cio", min_value=1, max_value=500, value=max(1, final_minute_default - 10), step=1
+                "Minuto de sa?da - in?cio",
+                min_value=1,
+                max_value=500,
+                value=max(1, final_default - 10),
+                step=1,
             )
             final_end = st.number_input(
-                "Minuto de sa?da - fim", min_value=1, max_value=500, value=min(500, final_minute_default + 10), step=1
+                "Minuto de sa?da - fim",
+                min_value=1,
+                max_value=500,
+                value=min(500, final_default + 10),
+                step=1,
             )
             final_step = st.number_input("Minuto de sa?da - passo", min_value=1, max_value=100, value=1, step=1)
-            train_start_text = st.text_input("Treino - in?cio (YYYY-MM-DD)", value="", placeholder="2022-01-01")
-            train_end_text = st.text_input("Treino - fim (YYYY-MM-DD)", value="", placeholder="2022-12-31")
-            validation_enabled = st.checkbox("Validar melhores combina??es fora da amostra", value=True)
-            validation_start_text = st.text_input("Valida??o - in?cio (YYYY-MM-DD)", value="", placeholder="2023-01-01")
-            validation_end_text = st.text_input("Valida??o - fim (YYYY-MM-DD)", value="", placeholder="2023-12-31")
-            search_max_pages = st.number_input("M?ximo de p?ginas na Lucy", min_value=1, value=max_pages, step=1)
-            search_max_games = st.number_input("M?ximo de jogos por combina??o", min_value=1, value=max_games, step=10)
 
-        snapshot_field_configs: list[dict[str, object]] = []
-        with st.expander("Filtros extras do snapshot", expanded=bool(default_snapshot_fields)):
-            st.caption("Marque s? os campos que voc? quer testar. Quanto mais filtros, maior o n?mero de combina??es.")
-            selected_snapshot_fields = st.multiselect(
-                "Campos extras",
-                options=[str(field["key"]) for field in SNAPSHOT_FIELD_PRESETS],
-                default=default_snapshot_fields,
-                format_func=lambda key: field_meta_map[str(key)]["label"],
-                key="zeus_optimization_snapshot_fields",
-            )
-            if selected_snapshot_fields:
-                for field_key in selected_snapshot_fields:
-                    meta = field_meta_map[str(field_key)]
-                    with st.container(border=True):
-                        st.markdown(f"**{meta['label']}**")
-                        st.caption(f"`{meta['expression']}` | operador fixo `{meta['operator']}`")
-                        row_start, row_end, row_step = st.columns(3)
-
-                        def _widget_value(value: float, precision: int) -> float | int:
-                            return int(value) if precision == 0 else float(value)
-
-                        with row_start:
-                            start_value = st.number_input(
-                                "In?cio",
-                                min_value=0 if int(meta["precision"]) == 0 else 0.0,
-                                value=_widget_value(float(meta["default_start"]), int(meta["precision"])),
-                                step=_widget_value(float(meta["default_step"]), int(meta["precision"])),
-                                key=f"zeus_opt_{field_key}_start",
-                            )
-                        with row_end:
-                            end_value = st.number_input(
-                                "Fim",
-                                min_value=0 if int(meta["precision"]) == 0 else 0.0,
-                                value=_widget_value(float(meta["default_end"]), int(meta["precision"])),
-                                step=_widget_value(float(meta["default_step"]), int(meta["precision"])),
-                                key=f"zeus_opt_{field_key}_end",
-                            )
-                        with row_step:
-                            step_value = st.number_input(
-                                "Passo",
-                                min_value=0.01 if int(meta["precision"]) else 1,
-                                value=_widget_value(float(meta["default_step"]), int(meta["precision"])),
-                                step=_widget_value(float(meta["default_step"]), int(meta["precision"])),
-                                key=f"zeus_opt_{field_key}_step",
-                            )
-                        snapshot_field_configs.append(
-                            {
-                                "enabled": True,
-                                "key": str(meta["key"]),
-                                "label": str(meta["label"]),
-                                "expression": str(meta["expression"]),
-                                "operator": str(meta["operator"]),
-                                "start": float(start_value),
-                                "end": float(end_value),
-                                "step": float(step_value),
-                                "precision": int(meta["precision"]),
-                            }
-                        )
-            else:
-                st.info("Nenhum filtro extra selecionado. A otimiza??o vai usar apenas a consulta e os minutos.")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            min_bets = st.number_input("M?nimo de bets", min_value=1, value=20, step=1)
+        with col_b:
+            combo_limit = st.number_input("Limite de combina??es", min_value=1, value=200, step=10)
 
         submit = st.form_submit_button("Rodar otimiza??o", width="stretch", type="primary")
 
@@ -861,6 +813,7 @@ def render_optimization_tab(
         if not token.strip():
             st.error("Entre com email/senha acima ou informe um token opcional antes de rodar a otimiza??o.")
             return
+
         try:
             entry_minutes = build_int_range(int(entry_start), int(entry_end), int(entry_step))
             final_minutes = build_int_range(int(final_start), int(final_end), int(final_step))
@@ -868,253 +821,132 @@ def render_optimization_tab(
             st.error(str(exc))
             return
 
-        base_queries = split_query_variants(strategy_variants_text)
-        final_filters = split_query_variants(final_variants_text)
-        snapshot_filter_groups = build_snapshot_filter_groups(snapshot_field_configs)
-        base_variants = expand_query_variants_with_filter_groups(base_queries, snapshot_filter_groups)
-        combos = candidate_product_with_snapshot_filters(base_variants, final_filters, entry_minutes, final_minutes)
-        total_combos = len(combos)
-        if total_combos == 0:
-            st.error("Nenhuma combina??o foi gerada. Verifique os intervalos e as consultas candidatas.")
+        combos = [
+            {"entry_minute": entry_minute, "final_minute": final_minute}
+            for entry_minute, final_minute in ((entry, final) for entry in entry_minutes for final in final_minutes)
+        ]
+        if not combos:
+            st.error("Nenhuma combina??o foi gerada. Verifique os intervalos dos minutos.")
             return
-        if total_combos > int(combo_limit):
-            st.warning(f"Foram geradas {total_combos} combina??es; vou executar apenas as primeiras {int(combo_limit)}.")
+        if len(combos) > int(combo_limit):
+            st.warning(f"Foram geradas {len(combos)} combina??es; vou executar apenas as primeiras {int(combo_limit)}.")
             combos = combos[: int(combo_limit)]
 
-        def _join_query_parts(left: str, right: str) -> str:
-            left = (left or "").strip()
-            right = (right or "").strip()
-            if left and right:
-                return f"({left}) and ({right})"
-            return left or right
-
-        async def _run_optimization_search() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-            rows_cache: dict[str, list[dict[str, object]]] = {}
-            train_records: list[dict[str, object]] = []
-            validation_records: list[dict[str, object]] = []
+        async def _run_optimization_search() -> pd.DataFrame:
+            rows_cache = list(lucy_rows)
+            records: list[dict[str, object]] = []
             progress = st.progress(0)
             status = st.empty()
 
-            async with AsyncZeusClient(auth_token=token) as raw_client:
-                raw_client.config = replace(
-                    raw_client.config,
-                    page_concurrency=max(raw_client.config.page_concurrency, 16),
-                    snapshot_concurrency=max(raw_client.config.snapshot_concurrency, 32),
-                    max_connections=max(raw_client.config.max_connections, 64),
-                    max_keepalive_connections=max(raw_client.config.max_keepalive_connections, 32),
+            async with AsyncZeusClient(auth_token=token) as async_client:
+                async_client.config = replace(
+                    async_client.config,
+                    page_concurrency=max(async_client.config.page_concurrency, 16),
+                    snapshot_concurrency=max(async_client.config.snapshot_concurrency, 32),
+                    max_connections=max(async_client.config.max_connections, 64),
+                    max_keepalive_connections=max(async_client.config.max_keepalive_connections, 32),
                 )
-                client = CachedAsyncZeusClient(raw_client)
-
-                async def _load_rows(full_query: str) -> list[dict[str, object]]:
-                    if full_query not in rows_cache:
-                        rows = await client.search_all(
-                            full_query,
-                            max_pages=int(search_max_pages),
-                            max_games=int(search_max_games),
-                            include_count=False,
-                        )
-                        rows_cache[full_query] = list(rows or [])
-                    return rows_cache[full_query]
 
                 for index, combo in enumerate(combos, start=1):
                     status.write(f"Executando {index}/{len(combos)} ? entrada {combo['entry_minute']} / sa?da {combo['final_minute']}")
-                    sanitized_base, _ = sanitize_query_terms(str(combo["augmented_base_query"]))
-                    sanitized_final, _ = sanitize_query_terms(str(combo["final_filter"]))
-                    train_query = add_date_filter(sanitized_base, train_start_text, train_end_text)
-                    train_filter = add_date_filter(sanitized_final, train_start_text, train_end_text)
-                    full_train_query = _join_query_parts(train_query, train_filter)
                     try:
-                        train_rows = await _load_rows(full_train_query)
-                        train_report = await run_backtest_async(
-                            client,
-                            train_rows,
+                        report = await run_backtest_async(
+                            async_client,
+                            rows_cache,
                             BacktestConfig(
-                                market_label=market_label_opt,
-                                stake=float(stake),
-                                commission=float(commission_decimal),
+                                market_label=market_label,
+                                stake=float(stake_value),
+                                commission=float(commission_value),
                                 entry_minute=int(combo["entry_minute"]),
                                 final_minute=int(combo["final_minute"]),
                             ),
                         )
-                        metrics = train_report["metrics"]
-                        train_records.append(
+                        metrics = report["metrics"]
+                        records.append(
                             {
-                                "combo_key": f"{combo['augmented_base_query']}|{combo['final_filter']}|{combo['entry_minute']}|{combo['final_minute']}",
-                                "snapshot_filters": " AND ".join(combo.get("snapshot_filters") or []),
-                                "augmented_base_query": combo["augmented_base_query"],
-                                "final_filter": combo["final_filter"],
-                                "executed_train_query": full_train_query,
                                 "entry_minute": int(combo["entry_minute"]),
                                 "final_minute": int(combo["final_minute"]),
-                                "train_matches": metrics.get("matches", 0),
-                                "train_bets": metrics.get("bets", 0),
-                                "train_wins": metrics.get("wins", 0),
-                                "train_win_rate": metrics.get("win_rate", 0.0),
-                                "train_roi": metrics.get("roi", 0.0),
-                                "train_profit": metrics.get("total_profit", 0.0),
-                                "train_drawdown": metrics.get("worst_curve", 0.0),
-                                "train_avg_entry_odd": metrics.get("avg_entry_odd", 0.0),
-                                "train_error": "",
+                                "bets": metrics.get("bets", 0),
+                                "wins": metrics.get("wins", 0),
+                                "win_rate": metrics.get("win_rate", 0.0),
+                                "profit": metrics.get("total_profit", 0.0),
+                                "roi": metrics.get("roi", 0.0),
+                                "drawdown": metrics.get("worst_curve", 0.0),
+                                "avg_entry_odd": metrics.get("avg_entry_odd", 0.0),
+                                "status": "ok",
                             }
                         )
                     except Exception as exc:
-                        train_records.append(
+                        records.append(
                             {
-                                "combo_key": f"{combo['augmented_base_query']}|{combo['final_filter']}|{combo['entry_minute']}|{combo['final_minute']}",
-                                "snapshot_filters": " AND ".join(combo.get("snapshot_filters") or []),
-                                "augmented_base_query": combo["augmented_base_query"],
-                                "final_filter": combo["final_filter"],
-                                "executed_train_query": full_train_query,
                                 "entry_minute": int(combo["entry_minute"]),
                                 "final_minute": int(combo["final_minute"]),
-                                "train_matches": 0,
-                                "train_bets": 0,
-                                "train_wins": 0,
-                                "train_win_rate": 0.0,
-                                "train_roi": 0.0,
-                                "train_profit": 0.0,
-                                "train_drawdown": 0.0,
-                                "train_avg_entry_odd": 0.0,
-                                "train_error": str(exc),
+                                "bets": 0,
+                                "wins": 0,
+                                "win_rate": 0.0,
+                                "profit": 0.0,
+                                "roi": 0.0,
+                                "drawdown": 0.0,
+                                "avg_entry_odd": 0.0,
+                                "status": f"erro: {exc}",
                             }
                         )
                     progress.progress(index / len(combos))
 
-                train_df = pd.DataFrame(train_records)
-                valid_train_df = train_df.loc[train_df["train_bets"].fillna(0).astype(float) >= float(min_bets)].copy()
-                ordered_train_records = sort_optimization_records(valid_train_df.to_dict("records"), validation_available=False)
-                ranking_df = pd.DataFrame(ordered_train_records)
+            df = pd.DataFrame(records)
+            valid_df = df.loc[df["bets"].fillna(0).astype(float) >= float(min_bets)].copy()
+            ordered_records = sort_optimization_records(valid_df.to_dict("records"), validation_available=False)
+            return pd.DataFrame(ordered_records)
 
-                if validation_enabled and not ranking_df.empty:
-                    validation_target = min(int(top_n_validation), len(ranking_df))
-                    for index, record in enumerate(ranking_df.head(validation_target).to_dict("records"), start=1):
-                        status.write(f"Validando {index}/{validation_target} ? entrada {record['entry_minute']} / sa?da {record['final_minute']}")
-                        sanitized_base, _ = sanitize_query_terms(str(record["augmented_base_query"]))
-                        sanitized_final, _ = sanitize_query_terms(str(record["final_filter"]))
-                        validation_query = add_date_filter(sanitized_base, validation_start_text, validation_end_text)
-                        validation_filter = add_date_filter(sanitized_final, validation_start_text, validation_end_text)
-                        full_validation_query = _join_query_parts(validation_query, validation_filter)
-                        try:
-                            validation_rows = await _load_rows(full_validation_query)
-                            validation_report = await run_backtest_async(
-                                client,
-                                validation_rows,
-                                BacktestConfig(
-                                    market_label=market_label_opt,
-                                    stake=float(stake),
-                                    commission=float(commission_decimal),
-                                    entry_minute=int(record["entry_minute"]),
-                                    final_minute=int(record["final_minute"]),
-                                ),
-                            )
-                            metrics = validation_report["metrics"]
-                            validation_records.append(
-                                {
-                                    "combo_key": record["combo_key"],
-                                    "executed_validation_query": full_validation_query,
-                                    "validation_matches": metrics.get("matches", 0),
-                                    "validation_bets": metrics.get("bets", 0),
-                                    "validation_wins": metrics.get("wins", 0),
-                                    "validation_win_rate": metrics.get("win_rate", 0.0),
-                                    "validation_roi": metrics.get("roi", 0.0),
-                                    "validation_profit": metrics.get("total_profit", 0.0),
-                                    "validation_drawdown": metrics.get("worst_curve", 0.0),
-                                    "validation_avg_entry_odd": metrics.get("avg_entry_odd", 0.0),
-                                    "validation_error": "",
-                                }
-                            )
-                        except Exception as exc:
-                            validation_records.append(
-                                {
-                                    "combo_key": record["combo_key"],
-                                    "executed_validation_query": full_validation_query,
-                                    "validation_matches": 0,
-                                    "validation_bets": 0,
-                                    "validation_wins": 0,
-                                    "validation_win_rate": 0.0,
-                                    "validation_roi": 0.0,
-                                    "validation_profit": 0.0,
-                                    "validation_drawdown": 0.0,
-                                    "validation_avg_entry_odd": 0.0,
-                                    "validation_error": str(exc),
-                                }
-                            )
-
-                validation_df = pd.DataFrame(validation_records)
-                if not validation_df.empty:
-                    ranking_df = ranking_df.merge(validation_df, on="combo_key", how="left")
-                    ranking_df = pd.DataFrame(sort_optimization_records(ranking_df.to_dict("records"), validation_available=True))
-
-                return train_df, ranking_df, validation_df
-
-        train_df, ranking_df, validation_df = _run_async(_run_optimization_search())
+        ranking_df = _run_async(_run_optimization_search())
         st.session_state["zeus_optimization_results"] = {
-            "train_df": train_df,
             "ranking_df": ranking_df,
-            "validation_df": validation_df,
-            "market_label": market_label_opt,
+            "market_label": market_label,
             "combo_limit": int(combo_limit),
-            "validation_enabled": validation_enabled,
-            "train_start_text": train_start_text,
-            "train_end_text": train_end_text,
-            "validation_start_text": validation_start_text,
-            "validation_end_text": validation_end_text,
+            "base_query": base_query,
+            "final_filter": final_filter,
+            "manual_games": len(lucy_rows),
+            "manual_profit": float((manual_metrics or {}).get("total_profit", 0.0)),
+            "manual_bets": int((manual_metrics or {}).get("bets", 0) or 0),
         }
         st.success("Otimiza??o conclu?da.")
 
     results = st.session_state.get("zeus_optimization_results")
     if not results:
-        st.info("Configure os par?metros acima e rode a otimiza??o para ver o ranking.")
+        st.info("Configure os minutos acima e rode a otimiza??o para ver o ranking.")
         return
 
     ranking_df = results.get("ranking_df") if isinstance(results, dict) else None
-    train_df = results.get("train_df") if isinstance(results, dict) else None
-    validation_df = results.get("validation_df") if isinstance(results, dict) else None
     if not isinstance(ranking_df, pd.DataFrame) or ranking_df.empty:
         st.warning("A otimiza??o n?o encontrou combina??es v?lidas suficientes para ranquear.")
         return
 
     st.subheader("Ranking")
-    display_columns = [
-        "entry_minute",
-        "final_minute",
-        "snapshot_filters",
-        "train_bets",
-        "train_win_rate",
-        "train_roi",
-        "train_profit",
-        "train_drawdown",
-        "validation_bets",
-        "validation_win_rate",
-        "validation_roi",
-        "validation_profit",
-        "validation_drawdown",
-        "executed_train_query",
-        "executed_validation_query",
+    available_columns = [
+        column for column in [
+            "entry_minute",
+            "final_minute",
+            "bets",
+            "wins",
+            "win_rate",
+            "profit",
+            "roi",
+            "drawdown",
+            "avg_entry_odd",
+            "status",
+        ]
+        if column in ranking_df.columns
     ]
-    available_columns = [column for column in display_columns if column in ranking_df.columns]
-    display_df = ranking_df[available_columns].copy()
-    st.dataframe(display_df.head(50), width="stretch", hide_index=True)
+    st.dataframe(ranking_df[available_columns].head(50), width="stretch", hide_index=True)
 
     best_row = ranking_df.iloc[0].to_dict()
     st.subheader("Melhor combina??o")
     st.write(
         f"Entrada {best_row.get('entry_minute')} | Sa?da {best_row.get('final_minute')} | "
-        f"ROI treino {float(best_row.get('train_roi') or 0):.2f}%"
-        + (
-            f" | ROI valida??o {float(best_row.get('validation_roi') or 0):.2f}%"
-            if 'validation_roi' in best_row
-            else ""
-        )
+        f"Profit R$ {float(best_row.get('profit') or 0.0):.2f} | "
+        f"ROI {float(best_row.get('roi') or 0.0):.2f}%"
     )
-    if best_row.get("snapshot_filters"):
-        st.caption(f"Filtros extras: {best_row.get('snapshot_filters')}")
-    with st.expander("Ver queries executadas"):
-        st.write("Treino")
-        st.code(str(best_row.get("executed_train_query") or ""), language="text")
-        if best_row.get("executed_validation_query"):
-            st.write("Valida??o")
-            st.code(str(best_row.get("executed_validation_query") or ""), language="text")
+    st.caption(f"A base ? a mesma do backtest manual: {results.get('manual_games', 0)} jogos carregados.")
 
     csv_data = ranking_df.to_csv(index=False).encode("utf-8")
     json_data = json.dumps(
@@ -1124,7 +956,9 @@ def render_optimization_tab(
             "summary": {
                 "market_label": results.get("market_label"),
                 "combo_limit": results.get("combo_limit"),
-                "validation_enabled": results.get("validation_enabled"),
+                "base_query": results.get("base_query"),
+                "final_filter": results.get("final_filter"),
+                "manual_games": results.get("manual_games"),
             },
         },
         ensure_ascii=False,
@@ -1458,15 +1292,8 @@ def main() -> None:
     with tab_optimization:
         render_optimization_tab(
             token=token,
-            strategy_query=strategy_query,
-            final_check=final_check,
-            market_label=market_label,
-            stake=float(stake),
-            commission_decimal=commission_decimal,
-            max_pages=int(max_pages),
-            max_games=int(max_games),
-            entry_minute_default=int(entry_minute_default),
-            final_minute_default=int(final_minute_default),
+            manual_report=st.session_state.get("zeus_last_report"),
+            manual_inputs=st.session_state.get("zeus_last_inputs") or {},
         )
 
     return

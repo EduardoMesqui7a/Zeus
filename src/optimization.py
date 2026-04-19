@@ -353,17 +353,17 @@ def sort_optimization_records(records: list[dict[str, Any]], validation_availabl
 
     if validation_available:
         sort_keys = [
+            "validation_profit",
             "validation_roi",
-            "validation_win_rate",
             "validation_bets",
+            "train_profit",
             "train_roi",
-            "train_win_rate",
             "train_bets",
         ]
     else:
         sort_keys = [
+            "train_profit",
             "train_roi",
-            "train_win_rate",
             "train_bets",
             "train_drawdown",
         ]

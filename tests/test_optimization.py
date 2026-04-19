@@ -1,6 +1,6 @@
 import unittest
 
-from src.optimization import add_date_filter, build_int_range, candidate_product, split_query_variants
+from src.optimization import add_date_filter, build_int_range, candidate_product, sort_optimization_records, split_query_variants
 
 
 class OptimizationHelpersTests(unittest.TestCase):
@@ -23,6 +23,15 @@ class OptimizationHelpersTests(unittest.TestCase):
         self.assertEqual(len(combos), 4)
         self.assertEqual(combos[0]['entry_minute'], 1)
         self.assertEqual(combos[-1]['final_minute'], 10)
+
+    def test_sort_optimization_records_prefers_profit(self) -> None:
+        records = [
+            {'train_profit': 50, 'train_roi': 2, 'train_bets': 10},
+            {'train_profit': 60, 'train_roi': 1, 'train_bets': 3},
+            {'train_profit': 10, 'train_roi': 20, 'train_bets': 100},
+        ]
+        ordered = sort_optimization_records(records, validation_available=False)
+        self.assertEqual([record['train_profit'] for record in ordered], [60, 50, 10])
 
 
 if __name__ == '__main__':
