@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import threading
 from http.cookies import SimpleCookie
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ APP_BASE_URL = "https://app.fulltradersports.com"
 GAMES_API_BASE_URL = "https://gamesapi.fulltraderapps.com"
 AUTH_API_BASE_URL = "https://authapi.fulltraderapps.com"
 DEFAULT_TIMEOUT = 25
+NEXT_DATA_PATTERN = re.compile(r'<script[^>]+id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.DOTALL)
 
 
 class ZeusClientError(RuntimeError):
@@ -252,6 +254,13 @@ class ZeusClient:
         return data
 
     def fetch_final_snapshot(self, game_id: str, final_minute: int = 500) -> dict[str, Any]:
+        try:
+            detail = self.fetch_match_detail(game_id)
+            if detail:
+                return detail
+        except Exception:
+            pass
+
         attempts = []
         if final_minute == 500:
             attempts.extend([(2, 45), (2, 44), (1, 45)])
@@ -270,6 +279,58 @@ class ZeusClient:
         if last_error:
             raise ZeusClientError(f"Nao foi possivel obter o snapshot final de {game_id}.") from last_error
         raise ZeusClientError(f"Nao foi possivel obter o snapshot final de {game_id}.")
+
+    def fetch_match_detail(self, game_id: str) -> dict[str, Any]:
+        response = self._session().get(
+            f"{APP_BASE_URL}/lucy/match/{game_id}",
+            timeout=self.config.timeout,
+        )
+        if response.status_code in (401, 403):
+            raise ZeusAuthError(
+                f"Acesso negado ao detalhe do jogo {game_id}. Verifique se o token de acesso ainda esta valido."
+            )
+        if response.status_code >= 400:
+            raise ZeusClientError(
+                f"Falha ao consultar detalhe do jogo {game_id}: HTTP {response.status_code}"
+            )
+
+        match = NEXT_DATA_PATTERN.search(response.text or "")
+        if not match:
+            raise ZeusContractError("Nao foi possivel localizar o __NEXT_DATA__ do detalhe do jogo.")
+
+        try:
+            payload = json.loads(match.group(1))
+        except ValueError as exc:
+            raise ZeusContractError("Detalhe do jogo retornou JSON invalido.") from exc
+
+        page_props = (
+            payload.get("props", {})
+            .get("pageProps", {})
+            if isinstance(payload, dict)
+            else {}
+        )
+        if not isinstance(page_props, dict):
+            raise ZeusContractError("Detalhe do jogo retornou pageProps invalido.")
+
+        direct = page_props.get("lucyById")
+        if isinstance(direct, dict) and direct:
+            return direct
+
+        graph = page_props.get("lucyGraphById")
+        if isinstance(graph, list) and graph:
+            candidates = [row for row in graph if isinstance(row, dict)]
+            if candidates:
+                candidates.sort(
+                    key=lambda row: (
+                        int(row.get("Periodo") or row.get("periodo") or 0),
+                        int(row.get("Minuto") or row.get("minuto") or 0),
+                    )
+                )
+                last = candidates[-1]
+                if last:
+                    return last
+
+        raise ZeusContractError("Nao foi possivel extrair o estado final do jogo.")
 
     def fetch_timeline(self, game_id: str, market_field: str = "BackUnder25FT") -> list[dict[str, Any]]:
         timeline: list[dict[str, Any]] = []
@@ -466,6 +527,13 @@ class AsyncZeusClient:
         return data
 
     async def fetch_final_snapshot(self, game_id: str, final_minute: int = 500) -> dict[str, Any]:
+        try:
+            detail = await self.fetch_match_detail(game_id)
+            if detail:
+                return detail
+        except Exception:
+            pass
+
         attempts = []
         if final_minute == 500:
             attempts.extend([(2, 45), (2, 44), (1, 45)])
@@ -484,6 +552,60 @@ class AsyncZeusClient:
         if last_error:
             raise ZeusClientError(f"Nao foi possivel obter o snapshot final de {game_id}.") from last_error
         raise ZeusClientError(f"Nao foi possivel obter o snapshot final de {game_id}.")
+
+    async def fetch_match_detail(self, game_id: str) -> dict[str, Any]:
+        if self._client is None:
+            raise ZeusClientError("AsyncZeusClient nao foi inicializado com 'async with'.")
+
+        response = await self._client.get(
+            f"{APP_BASE_URL}/lucy/match/{game_id}",
+        )
+        if response.status_code in (401, 403):
+            raise ZeusAuthError(
+                f"Acesso negado ao detalhe do jogo {game_id}. Verifique se o token de acesso ainda esta valido."
+            )
+        if response.status_code >= 400:
+            raise ZeusClientError(
+                f"Falha ao consultar detalhe do jogo {game_id}: HTTP {response.status_code}"
+            )
+
+        match = NEXT_DATA_PATTERN.search(response.text or "")
+        if not match:
+            raise ZeusContractError("Nao foi possivel localizar o __NEXT_DATA__ do detalhe do jogo.")
+
+        try:
+            payload = json.loads(match.group(1))
+        except ValueError as exc:
+            raise ZeusContractError("Detalhe do jogo retornou JSON invalido.") from exc
+
+        page_props = (
+            payload.get("props", {})
+            .get("pageProps", {})
+            if isinstance(payload, dict)
+            else {}
+        )
+        if not isinstance(page_props, dict):
+            raise ZeusContractError("Detalhe do jogo retornou pageProps invalido.")
+
+        direct = page_props.get("lucyById")
+        if isinstance(direct, dict) and direct:
+            return direct
+
+        graph = page_props.get("lucyGraphById")
+        if isinstance(graph, list) and graph:
+            candidates = [row for row in graph if isinstance(row, dict)]
+            if candidates:
+                candidates.sort(
+                    key=lambda row: (
+                        int(row.get("Periodo") or row.get("periodo") or 0),
+                        int(row.get("Minuto") or row.get("minuto") or 0),
+                    )
+                )
+                last = candidates[-1]
+                if last:
+                    return last
+
+        raise ZeusContractError("Nao foi possivel extrair o estado final do jogo.")
 
     async def fetch_timeline(self, game_id: str, market_field: str = "BackUnder25FT") -> list[dict[str, Any]]:
         timeline: list[dict[str, Any]] = []
