@@ -322,13 +322,9 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
         if len(counts):
             centers = [(edges[i] + edges[i + 1]) / 2 for i in range(len(edges) - 1)]
             freq_counts = counts.value_counts(sort=False).reindex(counts.cat.categories, fill_value=0)
-            won_counts = (
-                results_df.loc[results_df["won"].fillna(False)]
-                .assign(_bin=pd.cut(results_df.loc[results_df["won"].fillna(False), "entry_odd"], bins=bins, include_lowest=True, duplicates="drop"))
-                ["_bin"]
-                .value_counts(sort=False)
-                .reindex(counts.cat.categories, fill_value=0)
-            )
+            won_entry_odd = results_df.loc[results_df["won"].fillna(False), "entry_odd"].dropna()
+            won_cut = pd.cut(won_entry_odd, bins=edges, include_lowest=True, duplicates="drop")
+            won_counts = won_cut.value_counts(sort=False).reindex(counts.cat.categories, fill_value=0)
             hist.add_trace(
                 go.Scatter(
                     x=centers[: len(freq_counts)],
