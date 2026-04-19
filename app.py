@@ -247,7 +247,7 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
                     y=freq_counts.values,
                     mode="lines+markers",
                     name="Quantidade de jogos",
-                    line=dict(color="#1d4ed8", width=2),
+                    line=dict(color="#f59e0b", width=2),
                     yaxis="y2",
                 )
             )
