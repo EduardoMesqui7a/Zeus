@@ -1104,11 +1104,28 @@ def main() -> None:
             placeholder="500",
             help="Opcional. Deixe vazio para usar o padrão técnico do app.",
         )
+        entry_minute_default = infer_entry_minute(strategy_query)
+        final_minute_default = 500
+        entry_minute_override_error = None
+        final_minute_override_error = None
+        if entry_override.strip():
+            try:
+                entry_minute_default = int(entry_override)
+            except ValueError:
+                entry_minute_override_error = "Os minutos precisam ser números inteiros."
+        if final_override.strip():
+            try:
+                final_minute_default = int(final_override)
+            except ValueError:
+                final_minute_override_error = "Os minutos precisam ser números inteiros."
         run = st.button("Consultar Zeus / Lucy", type="primary", use_container_width=True)
 
     if run:
         if not token.strip():
             st.error("Entre com email/senha acima ou informe um token opcional.")
+            return
+        if entry_minute_override_error or final_minute_override_error:
+            st.error(entry_minute_override_error or final_minute_override_error)
             return
         base_query = strategy_query.strip()
         final_filter = final_check.strip()
@@ -1120,8 +1137,8 @@ def main() -> None:
             full_query = base_query
             sanitized_final, _ = sanitize_query_terms(final_filter)
             full_query = sanitized_base
-            entry_minute = int(entry_override) if entry_override.strip() else infer_entry_minute(full_query)
-            final_minute = int(final_override) if final_override.strip() else 500
+            entry_minute = entry_minute_default
+            final_minute = final_minute_default
         except ValueError:
             st.error("Os minutos precisam ser números inteiros.")
             return
