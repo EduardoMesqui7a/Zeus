@@ -294,6 +294,24 @@ def _apply_lay_profit(stake: float, odd: float, won: bool, commission: float) ->
     return profit, risk
 
 
+def _cashout_back_profit(stake: float, entry_odd: float, exit_odd: float, commission: float) -> tuple[float, float]:
+    if exit_odd <= 0:
+        raise ZeusClientError("Odd de saida invalida para cashout back.")
+    profit = stake * ((entry_odd / exit_odd) - 1.0)
+    if profit > 0:
+        profit *= 1.0 - commission
+    return profit, stake
+
+
+def _cashout_lay_profit(stake: float, entry_odd: float, exit_odd: float, commission: float) -> tuple[float, float]:
+    if exit_odd <= 0:
+        raise ZeusClientError("Odd de saida invalida para cashout lay.")
+    profit = stake * (1.0 - (entry_odd / exit_odd))
+    if profit > 0:
+        profit *= 1.0 - commission
+    return profit, stake * (entry_odd - 1.0)
+
+
 def _normalize_datetime(value: Any) -> pd.Timestamp:
     dt = pd.to_datetime(value, errors="coerce", utc=True)
     if pd.isna(dt):
@@ -331,11 +349,31 @@ def _build_row(
         }
 
     odd_value = float(odd_value)
-    won = bool(market["settle"](final_snapshot))
-    if market["side"] == "back":
-        profit, risk = _apply_back_profit(config.stake, odd_value, won, config.commission)
+    exit_odd = _first_available(final_snapshot, *odd_fields)
+    if exit_odd is None and isinstance(odd_field, str):
+        exit_odd = final_snapshot.get(odd_field)
+    if exit_odd is None and isinstance(odd_field, str):
+        exit_odd = row.get(odd_field)
+    if exit_odd is None:
+        return {
+            "sport_event_id": game_id,
+            "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
+            "status": "sem odd de saida",
+        }
+    exit_odd = float(exit_odd)
+
+    if config.final_minute == 500:
+        won = bool(market["settle"](final_snapshot))
+        if market["side"] == "back":
+            profit, risk = _apply_back_profit(config.stake, odd_value, won, config.commission)
+        else:
+            profit, risk = _apply_lay_profit(config.stake, odd_value, won, config.commission)
     else:
-        profit, risk = _apply_lay_profit(config.stake, odd_value, won, config.commission)
+        if market["side"] == "back":
+            profit, risk = _cashout_back_profit(config.stake, odd_value, exit_odd, config.commission)
+        else:
+            profit, risk = _cashout_lay_profit(config.stake, odd_value, exit_odd, config.commission)
+        won = profit >= 0
 
     final_goals = _final_outcome_total_goals(final_snapshot)
     match_label = f"{pd.to_datetime(row.get('DataJogo'), errors='coerce').strftime('%Y-%m-%d') if pd.notna(pd.to_datetime(row.get('DataJogo'), errors='coerce')) else 'sem-data'} | {row.get('NomeCasa')} x {row.get('NomeVisitante')} | {game_id}"
@@ -350,6 +388,7 @@ def _build_row(
         "entry_minute": entry_minute,
         "entry_period": entry_period,
         "entry_odd": odd_value,
+        "exit_odd": exit_odd,
         "odds_field": odd_field,
         "odds_fields": odd_fields,
         "final_goals": final_goals,
@@ -473,11 +512,31 @@ async def _build_row_async(
         }
 
     odd_value = float(odd_value)
-    won = bool(market["settle"](final_snapshot))
-    if market["side"] == "back":
-        profit, risk = _apply_back_profit(config.stake, odd_value, won, config.commission)
+    exit_odd = _first_available(final_snapshot, *odd_fields)
+    if exit_odd is None and isinstance(odd_field, str):
+        exit_odd = final_snapshot.get(odd_field)
+    if exit_odd is None and isinstance(odd_field, str):
+        exit_odd = row.get(odd_field)
+    if exit_odd is None:
+        return {
+            "sport_event_id": game_id,
+            "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
+            "status": "sem odd de saida",
+        }
+    exit_odd = float(exit_odd)
+
+    if config.final_minute == 500:
+        won = bool(market["settle"](final_snapshot))
+        if market["side"] == "back":
+            profit, risk = _apply_back_profit(config.stake, odd_value, won, config.commission)
+        else:
+            profit, risk = _apply_lay_profit(config.stake, odd_value, won, config.commission)
     else:
-        profit, risk = _apply_lay_profit(config.stake, odd_value, won, config.commission)
+        if market["side"] == "back":
+            profit, risk = _cashout_back_profit(config.stake, odd_value, exit_odd, config.commission)
+        else:
+            profit, risk = _cashout_lay_profit(config.stake, odd_value, exit_odd, config.commission)
+        won = profit >= 0
 
     final_goals = _final_outcome_total_goals(final_snapshot)
     match_label = f"{pd.to_datetime(row.get('DataJogo'), errors='coerce').strftime('%Y-%m-%d') if pd.notna(pd.to_datetime(row.get('DataJogo'), errors='coerce')) else 'sem-data'} | {row.get('NomeCasa')} x {row.get('NomeVisitante')} | {game_id}"
@@ -492,6 +551,7 @@ async def _build_row_async(
         "entry_minute": entry_minute,
         "entry_period": entry_period,
         "entry_odd": odd_value,
+        "exit_odd": exit_odd,
         "odds_field": odd_field,
         "final_goals": final_goals,
         "final_home_goals": int(final_snapshot.get("GolsCasa") or 0),

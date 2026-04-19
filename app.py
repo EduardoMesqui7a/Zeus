@@ -636,6 +636,7 @@ def main() -> None:
                 <strong>Final check seguro:</strong> {report.get('sanitized_final_filter') or 'nenhum'}<br/>
                 <strong>Minutos detectados:</strong> {', '.join(map(str, extract_minute_refs(report['full_query']))) or 'nenhum'}<br/>
                 <strong>Entry minute usado:</strong> {report['backtest']['config'].entry_minute}<br/>
+                <strong>Final minute usado:</strong> {report['backtest']['config'].final_minute}<br/>
                 <strong>Universo base:</strong> {report['base_count_info'].get('count', 0)}<br/>
                 <strong>Universo final:</strong> {report['count_info'].get('count', 0)}<br/>
                 <strong>Conversão:</strong> {((report['count_info'].get('count', 0) / report['base_count_info'].get('count', 1)) * 100.0) if report['base_count_info'].get('count', 0) else 0:.2f}%<br/>
@@ -665,6 +666,7 @@ def main() -> None:
             "stake_risked",
             "won",
             "result_text",
+            "exit_odd",
             "final_home_goals",
             "final_away_goals",
             "drawdown",
