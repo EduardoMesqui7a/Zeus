@@ -229,12 +229,31 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
         st.plotly_chart(fig, use_container_width=True)
 
     with right:
+        entry_odd = results_df["entry_odd"].dropna()
+        bins = min(18, max(6, int(len(entry_odd) ** 0.5))) if len(entry_odd) else 18
         hist = px.histogram(
             results_df,
             x="entry_odd",
-            nbins=18,
+            nbins=bins,
             title="Distribuicao da odd de entrada",
         )
+        counts, edges = pd.cut(entry_odd, bins=bins, retbins=True, include_lowest=True, duplicates="drop")
+        if len(counts):
+            centers = [(edges[i] + edges[i + 1]) / 2 for i in range(len(edges) - 1)]
+            freq_counts = counts.value_counts(sort=False).reindex(counts.cat.categories, fill_value=0)
+            hist.add_trace(
+                go.Scatter(
+                    x=centers[: len(freq_counts)],
+                    y=freq_counts.values,
+                    mode="lines+markers",
+                    name="Quantidade de jogos",
+                    line=dict(color="#1d4ed8", width=2),
+                    yaxis="y2",
+                )
+            )
+            hist.update_layout(
+                yaxis2=dict(overlaying="y", side="right", title="Jogos por faixa"),
+            )
         hist.update_layout(height=420, margin=dict(l=0, r=0, t=40, b=0), template="plotly_white")
         st.plotly_chart(hist, use_container_width=True)
 
