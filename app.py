@@ -330,7 +330,7 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
                     x=centers[: len(freq_counts)],
                     y=freq_counts.values,
                     mode="lines+markers",
-                    name="Quantidade de jogos",
+                    name="Jogos total",
                     line=dict(color="#f59e0b", width=2),
                     yaxis="y2",
                 )
@@ -340,7 +340,7 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
                     x=centers[: len(won_counts)],
                     y=won_counts.values,
                     mode="lines+markers",
-                    name="Jogos Won",
+                    name="Jogos vencidos",
                     line=dict(color="#16a34a", width=2),
                     yaxis="y2",
                 )
