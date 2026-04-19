@@ -322,6 +322,13 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
         if len(counts):
             centers = [(edges[i] + edges[i + 1]) / 2 for i in range(len(edges) - 1)]
             freq_counts = counts.value_counts(sort=False).reindex(counts.cat.categories, fill_value=0)
+            won_counts = (
+                results_df.loc[results_df["won"].fillna(False)]
+                .assign(_bin=pd.cut(results_df.loc[results_df["won"].fillna(False), "entry_odd"], bins=bins, include_lowest=True, duplicates="drop"))
+                ["_bin"]
+                .value_counts(sort=False)
+                .reindex(counts.cat.categories, fill_value=0)
+            )
             hist.add_trace(
                 go.Scatter(
                     x=centers[: len(freq_counts)],
@@ -329,6 +336,16 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
                     mode="lines+markers",
                     name="Quantidade de jogos",
                     line=dict(color="#f59e0b", width=2),
+                    yaxis="y2",
+                )
+            )
+            hist.add_trace(
+                go.Scatter(
+                    x=centers[: len(won_counts)],
+                    y=won_counts.values,
+                    mode="lines+markers",
+                    name="Jogos Won",
+                    line=dict(color="#16a34a", width=2),
                     yaxis="y2",
                 )
             )
