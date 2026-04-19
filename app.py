@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from dataclasses import replace
 from datetime import datetime
 import json
 import os
@@ -574,6 +575,82 @@ def _run_async(coro):
             loop.close()
 
 
+class CachedAsyncZeusClient:
+    def __init__(self, client: AsyncZeusClient) -> None:
+        self._client = client
+        self._search_cache: dict[tuple[str, int, int, bool], object] = {}
+        self._search_inflight: dict[tuple[str, int, int, bool], asyncio.Task] = {}
+        self._snapshot_cache: dict[tuple[str, int, int], dict[str, object]] = {}
+        self._snapshot_inflight: dict[tuple[str, int, int], asyncio.Task] = {}
+        self._final_snapshot_cache: dict[tuple[str, int], dict[str, object]] = {}
+        self._final_snapshot_inflight: dict[tuple[str, int], asyncio.Task] = {}
+
+    async def search_all(
+        self,
+        query: str,
+        *,
+        max_pages: int | None = None,
+        max_games: int | None = None,
+        include_count: bool = False,
+    ):
+        key = (query, int(max_pages or 0), int(max_games or 0), bool(include_count))
+        if key in self._search_cache:
+            return self._search_cache[key]
+        task = self._search_inflight.get(key)
+        if task is None:
+            task = asyncio.create_task(
+                self._client.search_all(
+                    query,
+                    max_pages=max_pages,
+                    max_games=max_games,
+                    include_count=include_count,
+                )
+            )
+            self._search_inflight[key] = task
+        try:
+            result = await task
+            self._search_cache[key] = result
+            return result
+        finally:
+            if self._search_inflight.get(key) is task:
+                self._search_inflight.pop(key, None)
+
+    async def fetch_snapshot(self, game_id: str, minute: int, period: int) -> dict[str, object]:
+        key = (game_id, int(minute), int(period))
+        if key in self._snapshot_cache:
+            return self._snapshot_cache[key]
+        task = self._snapshot_inflight.get(key)
+        if task is None:
+            task = asyncio.create_task(self._client.fetch_snapshot(game_id, minute=minute, period=period))
+            self._snapshot_inflight[key] = task
+        try:
+            snapshot = await task
+            self._snapshot_cache[key] = snapshot
+            return snapshot
+        finally:
+            if self._snapshot_inflight.get(key) is task:
+                self._snapshot_inflight.pop(key, None)
+
+    async def fetch_final_snapshot(self, game_id: str, final_minute: int = 500) -> dict[str, object]:
+        key = (game_id, int(final_minute))
+        if key in self._final_snapshot_cache:
+            return self._final_snapshot_cache[key]
+        task = self._final_snapshot_inflight.get(key)
+        if task is None:
+            task = asyncio.create_task(self._client.fetch_final_snapshot(game_id, final_minute=final_minute))
+            self._final_snapshot_inflight[key] = task
+        try:
+            snapshot = await task
+            self._final_snapshot_cache[key] = snapshot
+            return snapshot
+        finally:
+            if self._final_snapshot_inflight.get(key) is task:
+                self._final_snapshot_inflight.pop(key, None)
+
+    def __getattr__(self, name: str):
+        return getattr(self._client, name)
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def load_backtest_report(
     cache_key: str,
@@ -723,129 +800,162 @@ def render_optimization_tab(
             st.warning(f"Foram geradas {total_combos} combinações; vou executar apenas as primeiras {int(combo_limit)}.")
             combos = combos[: int(combo_limit)]
 
-        train_records: list[dict[str, object]] = []
-        progress = st.progress(0)
-        status = st.empty()
-        cache_key = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        def _join_query_parts(left: str, right: str) -> str:
+            left = (left or "").strip()
+            right = (right or "").strip()
+            if left and right:
+                return f"({left}) and ({right})"
+            return left or right
 
-        for index, combo in enumerate(combos, start=1):
-            status.write(f"Executando {index}/{len(combos)} — entrada {combo['entry_minute']} / saída {combo['final_minute']}")
-            train_query = add_date_filter(combo["base_query"], train_start_text, train_end_text)
-            train_filter = add_date_filter(combo["final_filter"], train_start_text, train_end_text)
-            try:
-                report = load_backtest_report(
-                    cache_key,
-                    token,
-                    train_query,
-                    train_filter,
-                    market_label_opt,
-                    float(stake),
-                    float(commission_decimal),
-                    int(search_max_pages),
-                    int(search_max_games),
-                    int(combo["entry_minute"]),
-                    int(combo["final_minute"]),
-                )
-                metrics = report["backtest"]["metrics"]
-                train_records.append(
-                    {
-                        "combo_key": f"{combo['base_query']}|{combo['final_filter']}|{combo['entry_minute']}|{combo['final_minute']}",
-                        "base_query": combo["base_query"],
-                        "final_filter": combo["final_filter"],
-                        "entry_minute": int(combo["entry_minute"]),
-                        "final_minute": int(combo["final_minute"]),
-                        "train_matches": metrics.get("matches", 0),
-                        "train_bets": metrics.get("bets", 0),
-                        "train_wins": metrics.get("wins", 0),
-                        "train_win_rate": metrics.get("win_rate", 0.0),
-                        "train_roi": metrics.get("roi", 0.0),
-                        "train_profit": metrics.get("total_profit", 0.0),
-                        "train_drawdown": metrics.get("worst_curve", 0.0),
-                        "train_avg_entry_odd": metrics.get("avg_entry_odd", 0.0),
-                        "train_error": "",
-                    }
-                )
-            except Exception as exc:
-                train_records.append(
-                    {
-                        "combo_key": f"{combo['base_query']}|{combo['final_filter']}|{combo['entry_minute']}|{combo['final_minute']}",
-                        "base_query": combo["base_query"],
-                        "final_filter": combo["final_filter"],
-                        "entry_minute": int(combo["entry_minute"]),
-                        "final_minute": int(combo["final_minute"]),
-                        "train_matches": 0,
-                        "train_bets": 0,
-                        "train_wins": 0,
-                        "train_win_rate": 0.0,
-                        "train_roi": 0.0,
-                        "train_profit": 0.0,
-                        "train_drawdown": 0.0,
-                        "train_avg_entry_odd": 0.0,
-                        "train_error": str(exc),
-                    }
-                )
-            progress.progress(index / len(combos))
-
-        train_df = pd.DataFrame(train_records)
-        valid_train_df = train_df.loc[train_df["train_bets"].fillna(0).astype(float) >= float(min_bets)].copy()
-        ordered_train_records = sort_optimization_records(valid_train_df.to_dict("records"), validation_available=False)
-        ranking_df = pd.DataFrame(ordered_train_records)
-
-        validation_df = pd.DataFrame()
-        if validation_enabled and not ranking_df.empty:
+        async def _run_optimization_search() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+            rows_cache: dict[str, list[dict[str, object]]] = {}
+            train_records: list[dict[str, object]] = []
             validation_records: list[dict[str, object]] = []
-            for index, record in enumerate(ranking_df.head(int(top_n_validation)).to_dict("records"), start=1):
-                status.write(f"Validando {index}/{min(int(top_n_validation), len(ranking_df))} — entrada {record['entry_minute']} / saída {record['final_minute']}")
-                validation_query = add_date_filter(record["base_query"], validation_start_text, validation_end_text)
-                validation_filter = add_date_filter(record["final_filter"], validation_start_text, validation_end_text)
-                try:
-                    report = load_backtest_report(
-                        cache_key,
-                        token,
-                        validation_query,
-                        validation_filter,
-                        market_label_opt,
-                        float(stake),
-                        float(commission_decimal),
-                        int(search_max_pages),
-                        int(search_max_games),
-                        int(record["entry_minute"]),
-                        int(record["final_minute"]),
-                    )
-                    metrics = report["backtest"]["metrics"]
-                    validation_records.append(
-                        {
-                            "combo_key": record["combo_key"],
-                            "validation_matches": metrics.get("matches", 0),
-                            "validation_bets": metrics.get("bets", 0),
-                            "validation_wins": metrics.get("wins", 0),
-                            "validation_win_rate": metrics.get("win_rate", 0.0),
-                            "validation_roi": metrics.get("roi", 0.0),
-                            "validation_profit": metrics.get("total_profit", 0.0),
-                            "validation_drawdown": metrics.get("worst_curve", 0.0),
-                            "validation_avg_entry_odd": metrics.get("avg_entry_odd", 0.0),
-                            "validation_error": "",
-                        }
-                    )
-                except Exception as exc:
-                    validation_records.append(
-                        {
-                            "combo_key": record["combo_key"],
-                            "validation_matches": 0,
-                            "validation_bets": 0,
-                            "validation_wins": 0,
-                            "validation_win_rate": 0.0,
-                            "validation_roi": 0.0,
-                            "validation_profit": 0.0,
-                            "validation_drawdown": 0.0,
-                            "validation_avg_entry_odd": 0.0,
-                            "validation_error": str(exc),
-                        }
-                    )
-            validation_df = pd.DataFrame(validation_records)
-            ranking_df = ranking_df.merge(validation_df, on="combo_key", how="left")
-            ranking_df = pd.DataFrame(sort_optimization_records(ranking_df.to_dict("records"), validation_available=True))
+            progress = st.progress(0)
+            status = st.empty()
 
+            async with AsyncZeusClient(auth_token=token) as raw_client:
+                raw_client.config = replace(
+                    raw_client.config,
+                    page_concurrency=max(raw_client.config.page_concurrency, 16),
+                    snapshot_concurrency=max(raw_client.config.snapshot_concurrency, 32),
+                    max_connections=max(raw_client.config.max_connections, 64),
+                    max_keepalive_connections=max(raw_client.config.max_keepalive_connections, 32),
+                )
+                client = CachedAsyncZeusClient(raw_client)
+
+                async def _load_rows(full_query: str) -> list[dict[str, object]]:
+                    if full_query not in rows_cache:
+                        rows = await client.search_all(
+                            full_query,
+                            max_pages=int(search_max_pages),
+                            max_games=int(search_max_games),
+                            include_count=False,
+                        )
+                        rows_cache[full_query] = list(rows or [])
+                    return rows_cache[full_query]
+
+                for index, combo in enumerate(combos, start=1):
+                    status.write(f"Executando {index}/{len(combos)} — entrada {combo['entry_minute']} / saída {combo['final_minute']}")
+                    train_query = add_date_filter(combo["base_query"], train_start_text, train_end_text)
+                    train_filter = add_date_filter(combo["final_filter"], train_start_text, train_end_text)
+                    full_train_query = _join_query_parts(train_query, train_filter)
+                    try:
+                        train_rows = await _load_rows(full_train_query)
+                        train_report = await run_backtest_async(
+                            client,
+                            train_rows,
+                            BacktestConfig(
+                                market_label=market_label_opt,
+                                stake=float(stake),
+                                commission=float(commission_decimal),
+                                entry_minute=int(combo["entry_minute"]),
+                                final_minute=int(combo["final_minute"]),
+                            ),
+                        )
+                        metrics = train_report["metrics"]
+                        train_records.append(
+                            {
+                                "combo_key": f"{combo['base_query']}|{combo['final_filter']}|{combo['entry_minute']}|{combo['final_minute']}",
+                                "base_query": combo["base_query"],
+                                "final_filter": combo["final_filter"],
+                                "entry_minute": int(combo["entry_minute"]),
+                                "final_minute": int(combo["final_minute"]),
+                                "train_matches": metrics.get("matches", 0),
+                                "train_bets": metrics.get("bets", 0),
+                                "train_wins": metrics.get("wins", 0),
+                                "train_win_rate": metrics.get("win_rate", 0.0),
+                                "train_roi": metrics.get("roi", 0.0),
+                                "train_profit": metrics.get("total_profit", 0.0),
+                                "train_drawdown": metrics.get("worst_curve", 0.0),
+                                "train_avg_entry_odd": metrics.get("avg_entry_odd", 0.0),
+                                "train_error": "",
+                            }
+                        )
+                    except Exception as exc:
+                        train_records.append(
+                            {
+                                "combo_key": f"{combo['base_query']}|{combo['final_filter']}|{combo['entry_minute']}|{combo['final_minute']}",
+                                "base_query": combo["base_query"],
+                                "final_filter": combo["final_filter"],
+                                "entry_minute": int(combo["entry_minute"]),
+                                "final_minute": int(combo["final_minute"]),
+                                "train_matches": 0,
+                                "train_bets": 0,
+                                "train_wins": 0,
+                                "train_win_rate": 0.0,
+                                "train_roi": 0.0,
+                                "train_profit": 0.0,
+                                "train_drawdown": 0.0,
+                                "train_avg_entry_odd": 0.0,
+                                "train_error": str(exc),
+                            }
+                        )
+                    progress.progress(index / len(combos))
+
+                train_df = pd.DataFrame(train_records)
+                valid_train_df = train_df.loc[train_df["train_bets"].fillna(0).astype(float) >= float(min_bets)].copy()
+                ordered_train_records = sort_optimization_records(valid_train_df.to_dict("records"), validation_available=False)
+                ranking_df = pd.DataFrame(ordered_train_records)
+
+                if validation_enabled and not ranking_df.empty:
+                    for index, record in enumerate(ranking_df.head(int(top_n_validation)).to_dict("records"), start=1):
+                        status.write(f"Validando {index}/{min(int(top_n_validation), len(ranking_df))} — entrada {record['entry_minute']} / saída {record['final_minute']}")
+                        validation_query = add_date_filter(record["base_query"], validation_start_text, validation_end_text)
+                        validation_filter = add_date_filter(record["final_filter"], validation_start_text, validation_end_text)
+                        full_validation_query = _join_query_parts(validation_query, validation_filter)
+                        try:
+                            validation_rows = await _load_rows(full_validation_query)
+                            validation_report = await run_backtest_async(
+                                client,
+                                validation_rows,
+                                BacktestConfig(
+                                    market_label=market_label_opt,
+                                    stake=float(stake),
+                                    commission=float(commission_decimal),
+                                    entry_minute=int(record["entry_minute"]),
+                                    final_minute=int(record["final_minute"]),
+                                ),
+                            )
+                            metrics = validation_report["metrics"]
+                            validation_records.append(
+                                {
+                                    "combo_key": record["combo_key"],
+                                    "validation_matches": metrics.get("matches", 0),
+                                    "validation_bets": metrics.get("bets", 0),
+                                    "validation_wins": metrics.get("wins", 0),
+                                    "validation_win_rate": metrics.get("win_rate", 0.0),
+                                    "validation_roi": metrics.get("roi", 0.0),
+                                    "validation_profit": metrics.get("total_profit", 0.0),
+                                    "validation_drawdown": metrics.get("worst_curve", 0.0),
+                                    "validation_avg_entry_odd": metrics.get("avg_entry_odd", 0.0),
+                                    "validation_error": "",
+                                }
+                            )
+                        except Exception as exc:
+                            validation_records.append(
+                                {
+                                    "combo_key": record["combo_key"],
+                                    "validation_matches": 0,
+                                    "validation_bets": 0,
+                                    "validation_wins": 0,
+                                    "validation_win_rate": 0.0,
+                                    "validation_roi": 0.0,
+                                    "validation_profit": 0.0,
+                                    "validation_drawdown": 0.0,
+                                    "validation_avg_entry_odd": 0.0,
+                                    "validation_error": str(exc),
+                                }
+                            )
+
+                validation_df = pd.DataFrame(validation_records)
+                if not validation_df.empty:
+                    ranking_df = ranking_df.merge(validation_df, on="combo_key", how="left")
+                    ranking_df = pd.DataFrame(sort_optimization_records(ranking_df.to_dict("records"), validation_available=True))
+
+                return train_df, ranking_df, validation_df
+
+        train_df, ranking_df, validation_df = _run_async(_run_optimization_search())
         st.session_state["zeus_optimization_results"] = {
             "train_df": train_df,
             "ranking_df": ranking_df,
@@ -858,7 +968,7 @@ def render_optimization_tab(
             "validation_start_text": validation_start_text,
             "validation_end_text": validation_end_text,
         }
-        status.success("Otimização concluída.")
+        st.success("Otimização concluída.")
 
     results = st.session_state.get("zeus_optimization_results")
     if not results:
