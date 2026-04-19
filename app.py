@@ -382,6 +382,103 @@ def render_timeline_frame(timeline: list[dict[str, object]], market_field: str) 
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 
+def render_report_view(report: dict, token: str, market_label: str, base_query: str, final_filter: str) -> None:
+    st.markdown(
+        f"""
+        <div class="note-box">
+            <strong>Strategy query:</strong> {base_query}<br/>
+            <strong>Final check:</strong> {final_filter or 'nenhum'}<br/>
+            <strong>Query completa:</strong> {report['full_query']}<br/>
+            <strong>Final check seguro:</strong> {report.get('sanitized_final_filter') or 'nenhum'}<br/>
+            <strong>Minutos detectados:</strong> {', '.join(map(str, extract_minute_refs(report['full_query']))) or 'nenhum'}<br/>
+            <strong>Entry minute usado:</strong> {report['backtest']['config'].entry_minute}<br/>
+            <strong>Final minute usado:</strong> {report['backtest']['config'].final_minute}<br/>
+            <strong>Universo base:</strong> {report['base_count_info'].get('count', 0)}<br/>
+            <strong>Universo final:</strong> {report['count_info'].get('count', 0)}<br/>
+            <strong>Conversão:</strong> {((report['count_info'].get('count', 0) / report['base_count_info'].get('count', 1)) * 100.0) if report['base_count_info'].get('count', 0) else 0:.2f}%<br/>
+            <strong>Jogos carregados:</strong> {len(report['lucy_rows'])}<br/>
+            <strong>Mercado:</strong> {market_label}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if report.get("stripped_terms"):
+        st.warning(
+            "Removi termos com informacao futura da strategy query antes de pesquisar. "
+            "Isso evita look-ahead bias e explica por que o winrate nao deve ser 100% so por causa do resultado final."
+        )
+
+    render_metrics(report["backtest"]["metrics"])
+    render_charts(report["backtest"]["result_df"], block_period=st.session_state.get("zeus_profit_period", "Mensal"))
+
+    st.subheader("Resultados")
+    display_columns = [
+        "display_label",
+        "match_datetime",
+        "entry_minute",
+        "entry_odd",
+        "profit",
+        "stake_risked",
+        "won",
+        "result_text",
+        "exit_odd",
+        "final_home_goals",
+        "final_away_goals",
+        "drawdown",
+    ]
+    display_df = report["backtest"]["result_df"][display_columns].copy()
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    csv = report["backtest"]["result_df"].to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Baixar CSV",
+        data=csv,
+        file_name="zeus_backtest.csv",
+        mime="text/csv",
+        key="zeus_download_csv",
+    )
+
+    st.subheader("Detalhe do jogo")
+    if not report["backtest"]["result_df"].empty:
+        st.session_state.setdefault("zeus_detail_game_id", "")
+        st.session_state.setdefault("zeus_detail_market_field", "")
+        st.session_state.setdefault("zeus_detail_timeline", [])
+        selected_label = st.selectbox(
+            "Jogo",
+            report["backtest"]["result_df"]["display_label"].tolist(),
+            key="zeus_selected_game",
+        )
+        selected_rows = report["backtest"]["result_df"].loc[report["backtest"]["result_df"]["display_label"].eq(selected_label)]
+        if selected_rows.empty:
+            st.warning("Nao foi possivel localizar o jogo selecionado.")
+            return
+        selected = selected_rows.iloc[0]
+        st.write(f"{selected['display_label']} | entrada {selected['entry_minute']} | odd {selected['entry_odd']:.2f}")
+        load_detail = st.button("Carregar detalhe do jogo", use_container_width=True, key="zeus_load_detail")
+        cache_hit = (
+            st.session_state.get("zeus_detail_game_id") == str(selected["sport_event_id"])
+            and st.session_state.get("zeus_detail_market_field") == str(selected["odds_field"])
+        )
+        if load_detail:
+            with st.spinner("Carregando timeline do jogo..."):
+                st.session_state["zeus_detail_game_id"] = str(selected["sport_event_id"])
+                st.session_state["zeus_detail_market_field"] = str(selected["odds_field"])
+                st.session_state["zeus_detail_timeline"] = load_timeline_cached(
+                    hashlib.sha256(token.encode("utf-8")).hexdigest(),
+                    token,
+                    str(selected["sport_event_id"]),
+                    str(selected["odds_field"]),
+                )
+        if cache_hit and st.session_state.get("zeus_detail_timeline"):
+            render_timeline_frame(
+                st.session_state["zeus_detail_timeline"],
+                str(selected["odds_field"]),
+            )
+        else:
+            st.caption("Selecione o jogo e clique em 'Carregar detalhe do jogo' para buscar a timeline sob demanda.")
+
+
 def _run_async(coro):
     try:
         return asyncio.run(coro)
@@ -680,6 +777,16 @@ def main() -> None:
                 st.error(f"Erro inesperado: {exc}")
                 return
 
+        st.session_state["zeus_last_report"] = report
+        st.session_state["zeus_last_inputs"] = {
+            "token": token,
+            "base_query": base_query,
+            "final_filter": final_filter,
+            "market_label": market_label,
+        }
+        st.session_state.setdefault("zeus_profit_period", "Mensal")
+        st.rerun()
+
         st.markdown(
             f"""
             <div class="note-box">
@@ -773,6 +880,18 @@ def main() -> None:
             else:
                 st.caption("Selecione o jogo e clique em 'Carregar detalhe do jogo' para buscar a timeline sob demanda.")
 
+        st.caption("Consulta concluida com os endpoints internos do Zeus/Lucy.")
+
+    last_report = st.session_state.get("zeus_last_report")
+    last_inputs = st.session_state.get("zeus_last_inputs") or {}
+    if last_report and last_inputs and not run:
+        render_report_view(
+            last_report,
+            token=str(last_inputs.get("token", "")),
+            market_label=str(last_inputs.get("market_label", "")),
+            base_query=str(last_inputs.get("base_query", "")),
+            final_filter=str(last_inputs.get("final_filter", "")),
+        )
         st.caption("Consulta concluida com os endpoints internos do Zeus/Lucy.")
 
 
