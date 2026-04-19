@@ -1004,8 +1004,6 @@ def render_optimization_tab(
         "validation_roi",
         "validation_profit",
         "validation_drawdown",
-        "base_query",
-        "final_filter",
         "executed_train_query",
         "executed_validation_query",
     ]
