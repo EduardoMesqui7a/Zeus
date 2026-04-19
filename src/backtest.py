@@ -445,18 +445,11 @@ def _build_row(
         }
     exit_odd = float(exit_odd)
 
-    if settlement_minute == market_settle_minute or settlement_minute == 500:
-        won = bool(market["settle"](final_snapshot))
-        if market["side"] == "back":
-            profit, risk = _apply_back_profit(config.stake, odd_value, won, config.commission)
-        else:
-            profit, risk = _apply_lay_profit(config.stake, odd_value, won, config.commission)
+    won = bool(market["settle"](final_snapshot))
+    if market["side"] == "back":
+        profit, risk = _apply_back_profit(config.stake, odd_value, won, config.commission)
     else:
-        if market["side"] == "back":
-            profit, risk = _cashout_back_profit(config.stake, odd_value, exit_odd, config.commission)
-        else:
-            profit, risk = _cashout_lay_profit(config.stake, odd_value, exit_odd, config.commission)
-        won = profit >= 0
+        profit, risk = _apply_lay_profit(config.stake, odd_value, won, config.commission)
 
     final_goals = _final_outcome_total_goals(final_snapshot)
     match_label = f"{pd.to_datetime(row.get('DataJogo'), errors='coerce').strftime('%Y-%m-%d') if pd.notna(pd.to_datetime(row.get('DataJogo'), errors='coerce')) else 'sem-data'} | {row.get('NomeCasa')} x {row.get('NomeVisitante')} | {game_id}"
@@ -618,18 +611,11 @@ async def _build_row_async(
         }
     exit_odd = float(exit_odd)
 
-    if settlement_minute == market_settle_minute or settlement_minute == 500:
-        won = bool(market["settle"](final_snapshot))
-        if market["side"] == "back":
-            profit, risk = _apply_back_profit(config.stake, odd_value, won, config.commission)
-        else:
-            profit, risk = _apply_lay_profit(config.stake, odd_value, won, config.commission)
+    won = bool(market["settle"](final_snapshot))
+    if market["side"] == "back":
+        profit, risk = _apply_back_profit(config.stake, odd_value, won, config.commission)
     else:
-        if market["side"] == "back":
-            profit, risk = _cashout_back_profit(config.stake, odd_value, exit_odd, config.commission)
-        else:
-            profit, risk = _cashout_lay_profit(config.stake, odd_value, exit_odd, config.commission)
-        won = profit >= 0
+        profit, risk = _apply_lay_profit(config.stake, odd_value, won, config.commission)
 
     final_goals = _final_outcome_total_goals(final_snapshot)
     match_label = f"{pd.to_datetime(row.get('DataJogo'), errors='coerce').strftime('%Y-%m-%d') if pd.notna(pd.to_datetime(row.get('DataJogo'), errors='coerce')) else 'sem-data'} | {row.get('NomeCasa')} x {row.get('NomeVisitante')} | {game_id}"
