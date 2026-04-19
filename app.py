@@ -255,27 +255,6 @@ def build_results_display_df(result_df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def style_results_display_df(display_df: pd.DataFrame) -> pd.io.formats.style.Styler:
-    centered_columns = [
-        "Gols Casa",
-        "Gols Fora",
-        "Minuto Entrada",
-        "Odd Entrada",
-        "Minuto Saída",
-        "Odd Saída",
-        "Stake",
-        "Won",
-        "Profit",
-        "Resultado",
-        "Drawdown",
-    ]
-    existing_centered = [column for column in centered_columns if column in display_df.columns]
-    styler = display_df.style
-    if existing_centered:
-        styler = styler.set_properties(subset=existing_centered, **{"text-align": "center"})
-    return styler
-
-
 def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> None:
     if results_df.empty:
         return
@@ -516,7 +495,7 @@ def render_report_view(report: dict, token: str, market_label: str, base_query: 
 
     st.subheader("Resultados")
     display_df = build_results_display_df(report["backtest"]["result_df"])
-    st.dataframe(style_results_display_df(display_df), use_container_width=True, hide_index=True)
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     csv = report["backtest"]["result_df"].to_csv(index=False).encode("utf-8")
     st.download_button(
@@ -906,7 +885,7 @@ def main() -> None:
 
         st.subheader("Resultados")
         display_df = build_results_display_df(report["backtest"]["result_df"])
-        st.dataframe(style_results_display_df(display_df), use_container_width=True, hide_index=True)
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
         csv = report["backtest"]["result_df"].to_csv(index=False).encode("utf-8")
         st.download_button(
