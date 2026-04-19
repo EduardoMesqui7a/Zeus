@@ -581,6 +581,10 @@ def load_backtest_report(
         full_query = f"({sanitized_base}) and ({sanitized_final})" if sanitized_base else sanitized_final
     stripped_terms = stripped_base
     stripped_terms.extend(stripped_final)
+    market_defaults = MARKET_OPTIONS.get(market_label, {})
+    effective_final_minute = final_minute
+    if effective_final_minute == 500:
+        effective_final_minute = int(market_defaults.get("settle_minute") or effective_final_minute)
 
     async def _load() -> dict:
         async with AsyncZeusClient(auth_token=_token) as async_client:
@@ -602,7 +606,7 @@ def load_backtest_report(
                 stake=float(stake),
                 commission=float(commission),
                 entry_minute=entry_minute,
-                final_minute=final_minute,
+                final_minute=effective_final_minute,
             )
             backtest = await run_backtest_async(async_client, lucy_rows, config)
             return {

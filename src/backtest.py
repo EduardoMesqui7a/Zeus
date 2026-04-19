@@ -37,6 +37,14 @@ def _final_outcome_over_05(snapshot: dict[str, Any]) -> bool:
     return _final_outcome_total_goals(snapshot) >= 1
 
 
+def _final_outcome_under_05_ht(snapshot: dict[str, Any]) -> bool:
+    return _final_outcome_total_goals(snapshot) <= 0
+
+
+def _final_outcome_over_05_ht(snapshot: dict[str, Any]) -> bool:
+    return _final_outcome_total_goals(snapshot) >= 1
+
+
 def _final_outcome_under_25(snapshot: dict[str, Any]) -> bool:
     return _final_outcome_total_goals(snapshot) <= 2
 
@@ -64,6 +72,18 @@ def _final_outcome_scoreline(home_goals: int, away_goals: int) -> Callable[[dict
     return _checker
 
 
+def _final_outcome_any_other_home_win(snapshot: dict[str, Any]) -> bool:
+    home_goals = int(snapshot.get("GolsCasa") or 0)
+    away_goals = int(snapshot.get("GolsVisitante") or 0)
+    return home_goals >= 4 and home_goals > away_goals
+
+
+def _final_outcome_any_other_away_win(snapshot: dict[str, Any]) -> bool:
+    home_goals = int(snapshot.get("GolsCasa") or 0)
+    away_goals = int(snapshot.get("GolsVisitante") or 0)
+    return away_goals >= 4 and away_goals > home_goals
+
+
 def _first_available(snapshot: dict[str, Any], *fields: str) -> Any:
     for field in fields:
         value = snapshot.get(field)
@@ -72,7 +92,39 @@ def _first_available(snapshot: dict[str, Any], *fields: str) -> Any:
     return None
 
 
+def _market_settlement_minute(market: dict[str, Any]) -> int:
+    return int(market.get("settle_minute") or 500)
+
+
 MARKET_OPTIONS: dict[str, dict[str, Any]] = {
+    "Back Under 0.5 HT": {
+        "odds_fields": ["BackUnder05HT", "BackUnder0_5HT"],
+        "side": "back",
+        "settle": _final_outcome_under_05_ht,
+        "settle_minute": 45,
+        "description": "Back no Under 0.5 HT",
+    },
+    "Lay Under 0.5 HT": {
+        "odds_fields": ["LayUnder05HT", "LayUnder0_5HT"],
+        "side": "lay",
+        "settle": _final_outcome_under_05_ht,
+        "settle_minute": 45,
+        "description": "Lay no Under 0.5 HT",
+    },
+    "Back Over 0.5 HT": {
+        "odds_fields": ["BackOver05HT", "BackOver0_5HT"],
+        "side": "back",
+        "settle": _final_outcome_over_05_ht,
+        "settle_minute": 45,
+        "description": "Back no Over 0.5 HT",
+    },
+    "Lay Over 0.5 HT": {
+        "odds_fields": ["LayOver05HT", "LayOver0_5HT"],
+        "side": "lay",
+        "settle": _final_outcome_over_05_ht,
+        "settle_minute": 45,
+        "description": "Lay no Over 0.5 HT",
+    },
     "Back Under 2.5 FT": {
         "odds_fields": ["BackUnder25FT"],
         "side": "back",
@@ -198,6 +250,28 @@ MARKET_OPTIONS: dict[str, dict[str, Any]] = {
         "side": "lay",
         "settle": _final_outcome_over_05,
         "description": "Lay over 0.5 FT",
+    },
+    "Lay Goleada Casa FT": {
+        "odds_fields": [
+            "LayGoleadaCasaFT",
+            "LayAnyOtherHomeWinFT",
+            "LayAnyOtherHomeResultFT",
+            "LayOtherHomeWinFT",
+        ],
+        "side": "lay",
+        "settle": _final_outcome_any_other_home_win,
+        "description": "Lay goleada casa FT",
+    },
+    "Lay Goleada Fora FT": {
+        "odds_fields": [
+            "LayGoleadaForaFT",
+            "LayAnyOtherAwayWinFT",
+            "LayAnyOtherAwayResultFT",
+            "LayOtherAwayWinFT",
+        ],
+        "side": "lay",
+        "settle": _final_outcome_any_other_away_win,
+        "description": "Lay goleada fora FT",
     },
     "Back Correct Score 0-0": {
         "odds_fields": ["BackCS00FT", "BackCorrectScore00FT", "BackScore00FT"],
@@ -332,7 +406,11 @@ def _build_row(
     entry_minute = config.entry_minute or infer_entry_minute(str(row.get("query") or ""))
     entry_period, entry_period_minute = absolute_to_period_minute(entry_minute)
     entry_snapshot = client.fetch_snapshot(game_id, minute=entry_period_minute, period=entry_period)
-    final_snapshot = client.fetch_final_snapshot(game_id, final_minute=config.final_minute)
+    settlement_minute = config.final_minute
+    market_settle_minute = _market_settlement_minute(market)
+    if settlement_minute == 500:
+        settlement_minute = market_settle_minute
+    final_snapshot = client.fetch_final_snapshot(game_id, final_minute=settlement_minute)
 
     odd_fields = list(market.get("odds_fields") or [])
     odd_field = odd_fields[0] if odd_fields else market.get("odds_field")
@@ -362,7 +440,7 @@ def _build_row(
         }
     exit_odd = float(exit_odd)
 
-    if config.final_minute == 500:
+    if settlement_minute == market_settle_minute or settlement_minute == 500:
         won = bool(market["settle"](final_snapshot))
         if market["side"] == "back":
             profit, risk = _apply_back_profit(config.stake, odd_value, won, config.commission)
@@ -387,7 +465,7 @@ def _build_row(
         "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
         "entry_minute": entry_minute,
         "entry_period": entry_period,
-        "exit_minute": config.final_minute,
+        "exit_minute": settlement_minute,
         "entry_odd": odd_value,
         "exit_odd": exit_odd,
         "odds_field": odd_field,
@@ -497,7 +575,11 @@ async def _build_row_async(
     entry_minute = config.entry_minute or infer_entry_minute(str(row.get("query") or ""))
     entry_period, entry_period_minute = absolute_to_period_minute(entry_minute)
     entry_task = client.fetch_snapshot(game_id, minute=entry_period_minute, period=entry_period)
-    final_task = client.fetch_final_snapshot(game_id, final_minute=config.final_minute)
+    settlement_minute = config.final_minute
+    market_settle_minute = _market_settlement_minute(market)
+    if settlement_minute == 500:
+        settlement_minute = market_settle_minute
+    final_task = client.fetch_final_snapshot(game_id, final_minute=settlement_minute)
     entry_snapshot, final_snapshot = await asyncio.gather(entry_task, final_task)
 
     odd_fields = list(market.get("odds_fields") or [])
@@ -528,7 +610,7 @@ async def _build_row_async(
         }
     exit_odd = float(exit_odd)
 
-    if config.final_minute == 500:
+    if settlement_minute == market_settle_minute or settlement_minute == 500:
         won = bool(market["settle"](final_snapshot))
         if market["side"] == "back":
             profit, risk = _apply_back_profit(config.stake, odd_value, won, config.commission)
@@ -553,7 +635,7 @@ async def _build_row_async(
         "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
         "entry_minute": entry_minute,
         "entry_period": entry_period,
-        "exit_minute": config.final_minute,
+        "exit_minute": settlement_minute,
         "entry_odd": odd_value,
         "exit_odd": exit_odd,
         "odds_field": odd_field,
