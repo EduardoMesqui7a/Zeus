@@ -522,6 +522,7 @@ def render_report_view(report: dict, token: str, market_label: str, base_query: 
             return
         selected = selected_rows.iloc[0]
         st.write(f"{selected['display_label']} | entrada {selected['entry_minute']} | odd {selected['entry_odd']:.2f}")
+        st.caption(f"Campo odd usado: {selected.get('odds_field_used') or selected.get('odds_field') or 'n/a'}")
         load_detail = st.button("Carregar detalhe do jogo", use_container_width=True, key="zeus_load_detail")
         cache_hit = (
             st.session_state.get("zeus_detail_game_id") == str(selected["sport_event_id"])
@@ -914,6 +915,7 @@ def main() -> None:
                 return
             selected = selected_rows.iloc[0]
             st.write(f"{selected['display_label']} | entrada {selected['entry_minute']} | odd {selected['entry_odd']:.2f}")
+            st.caption(f"Campo odd usado: {selected.get('odds_field_used') or selected.get('odds_field') or 'n/a'}")
             load_detail = st.button("Carregar detalhe do jogo", use_container_width=True)
             cache_hit = (
                 st.session_state.get("zeus_detail_game_id") == str(selected["sport_event_id"])
