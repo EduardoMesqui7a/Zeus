@@ -781,14 +781,14 @@ def main() -> None:
         detected_market = detect_market_from_query(strategy_query)
         if detected_market:
             st.caption(f"Mercado detectado na strategy query: {detected_market}")
+        market_options = list(MARKET_OPTIONS.keys())
+        default_market_index = market_options.index(detected_market) if detected_market in market_options else 0
         market_label = st.selectbox(
             "Mercado manual",
-            list(MARKET_OPTIONS.keys()),
-            index=0,
-            disabled=bool(detected_market),
-            help="Usado apenas se a strategy query nao permitir detectar o mercado automaticamente.",
+            market_options,
+            index=default_market_index,
+            help="Escolha o mercado que sera usado no backtest. A strategy query pode sugerir um valor, mas voce pode alterar.",
         )
-        market_label = detected_market or market_label
         stake = st.number_input("Stake por entrada", min_value=1.0, value=100.0, step=10.0)
         commission = st.number_input("Comissao", min_value=0.0, max_value=0.2, value=0.08, step=0.01, format="%.2f")
         max_pages = st.number_input("Max pages Lucy", min_value=1, value=25, step=1)
