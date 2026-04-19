@@ -193,6 +193,68 @@ def render_metrics(metrics: dict) -> None:
             st.markdown(metric_card(label, value), unsafe_allow_html=True)
 
 
+def build_results_display_df(result_df: pd.DataFrame) -> pd.DataFrame:
+    display_columns = [
+        "display_label",
+        "match_datetime",
+        "entry_minute",
+        "entry_odd",
+        "profit",
+        "stake_risked",
+        "won",
+        "result_text",
+        "exit_minute",
+        "exit_odd",
+        "final_home_goals",
+        "final_away_goals",
+        "drawdown",
+    ]
+    if result_df.empty:
+        return pd.DataFrame(columns=[
+            "Jogos",
+            "Data",
+            "Minuto Entrada",
+            "Odd Entrada",
+            "Profit",
+            "Stake",
+            "Won",
+            "Resultado",
+            "Minuto Saída",
+            "Odd Saída",
+            "Gols Casa",
+            "Gols Fora",
+            "Drawdown",
+        ])
+    missing_columns = [column for column in display_columns if column not in result_df.columns]
+    if missing_columns:
+        result_df = result_df.copy()
+        for column in missing_columns:
+            result_df[column] = pd.NA
+    display_df = result_df[display_columns].copy()
+    display_df["match_datetime"] = (
+        pd.to_datetime(display_df["match_datetime"], errors="coerce", utc=True)
+        .dt.tz_convert("America/Sao_Paulo")
+        .dt.strftime("%d/%m/%y %H:%M")
+    )
+    return display_df.rename(
+        columns={
+            "display_label": "Jogos",
+            "match_datetime": "Data",
+            "entry_minute": "Minuto Entrada",
+            "entry_odd": "Odd Entrada",
+            "profit": "Profit",
+            "stake_risked": "Stake",
+            "won": "Won",
+            "result_text": "Resultado",
+            "exit_minute": "Minuto Saída",
+            "exit_odd": "Odd Saída",
+            "final_home_goals": "Gols Casa",
+            "final_away_goals": "Gols Fora",
+            "drawdown": "Drawdown",
+        }
+    )
+
+
 def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> None:
     if results_df.empty:
         return
@@ -432,21 +494,7 @@ def render_report_view(report: dict, token: str, market_label: str, base_query: 
     render_charts(report["backtest"]["result_df"], block_period=st.session_state.get("zeus_profit_period", "Mensal"))
 
     st.subheader("Resultados")
-    display_columns = [
-        "display_label",
-        "match_datetime",
-        "entry_minute",
-        "entry_odd",
-        "profit",
-        "stake_risked",
-        "won",
-        "result_text",
-        "exit_odd",
-        "final_home_goals",
-        "final_away_goals",
-        "drawdown",
-    ]
-    display_df = report["backtest"]["result_df"][display_columns].copy()
+    display_df = build_results_display_df(report["backtest"]["result_df"])
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     csv = report["backtest"]["result_df"].to_csv(index=False).encode("utf-8")
@@ -836,21 +884,7 @@ def main() -> None:
         render_charts(report["backtest"]["result_df"], block_period="Mensal")
 
         st.subheader("Resultados")
-        display_columns = [
-            "display_label",
-            "match_datetime",
-            "entry_minute",
-            "entry_odd",
-            "profit",
-            "stake_risked",
-            "won",
-            "result_text",
-            "exit_odd",
-            "final_home_goals",
-            "final_away_goals",
-            "drawdown",
-        ]
-        display_df = report["backtest"]["result_df"][display_columns].copy()
+        display_df = build_results_display_df(report["backtest"]["result_df"])
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
         csv = report["backtest"]["result_df"].to_csv(index=False).encode("utf-8")
