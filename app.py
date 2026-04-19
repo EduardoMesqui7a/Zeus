@@ -185,7 +185,7 @@ def render_metrics(metrics: dict) -> None:
     items = [
         ("Lucro", f"{metrics.get('total_profit', 0):.2f}"),
         ("Stake", f"{metrics.get('total_risked', 0):.2f}"),
-        ("Drawdown", f"{metrics.get('max_drawdown', 0):.2f}"),
+        ("Maior perda", f"{metrics.get('worst_trade', 0):.2f}"),
         ("Odd media", f"{metrics.get('avg_entry_odd', 0):.2f}"),
     ]
     for col, (label, value) in zip(cols, items, strict=False):
@@ -193,11 +193,11 @@ def render_metrics(metrics: dict) -> None:
             st.markdown(metric_card(label, value), unsafe_allow_html=True)
 
 
-def render_charts(results_df: pd.DataFrame) -> None:
+def render_charts(results_df: pd.DataFrame, block_freq: str = "D") -> None:
     if results_df.empty:
         return
 
-    st.subheader("Curva e distribuicao")
+    st.subheader("Curva, distribuicao e blocos")
     left, right = st.columns((1.4, 1))
 
     with left:
@@ -209,17 +209,6 @@ def render_charts(results_df: pd.DataFrame) -> None:
                 mode="lines",
                 name="Equity",
                 line=dict(color="#0f766e", width=3),
-            )
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=results_df["match_datetime"],
-                y=results_df["drawdown"],
-                mode="lines",
-                name="Drawdown",
-                line=dict(color="#b91c1c", width=2),
-                fill="tozeroy",
-                opacity=0.3,
             )
         )
         fig.update_layout(
@@ -240,6 +229,54 @@ def render_charts(results_df: pd.DataFrame) -> None:
         )
         hist.update_layout(height=420, margin=dict(l=0, r=0, t=40, b=0), template="plotly_white")
         st.plotly_chart(hist, use_container_width=True)
+
+    block_labels = {
+        "D": "Dia",
+        "W": "Semana",
+        "M": "Mes",
+    }
+    block_dt = results_df["match_datetime"]
+    if getattr(block_dt.dt, "tz", None) is not None:
+        block_dt = block_dt.dt.tz_convert(None)
+    grouped = (
+        results_df.assign(block=block_dt.dt.to_period(block_freq).dt.start_time)
+        .groupby("block", as_index=False)
+        .agg(profit=("profit", "sum"), bets=("profit", "size"))
+        .sort_values("block")
+    )
+    if not grouped.empty:
+        fig_blocks = go.Figure()
+        fig_blocks.add_trace(
+            go.Bar(
+                x=grouped["block"],
+                y=grouped["profit"],
+                name="Lucro do bloco",
+                marker_color=["#0f766e" if value >= 0 else "#b91c1c" for value in grouped["profit"]],
+            )
+        )
+        fig_blocks.add_trace(
+            go.Scatter(
+                x=grouped["block"],
+                y=grouped["profit"].cumsum(),
+                mode="lines+markers",
+                name="Acumulado por bloco",
+                line=dict(color="#1d4ed8", width=2),
+                yaxis="y2",
+            )
+        )
+        fig_blocks.update_layout(
+            height=380,
+            template="plotly_white",
+            margin=dict(l=0, r=0, t=30, b=0),
+            barmode="relative",
+            legend=dict(orientation="h"),
+            xaxis_title=f"Bloco por {block_labels.get(block_freq, 'Periodo')}",
+            yaxis_title="Lucro no bloco",
+            yaxis2=dict(overlaying="y", side="right", title="Acumulado"),
+        )
+        st.subheader(f"Profit por {block_labels.get(block_freq, 'periodo').lower()}")
+        st.plotly_chart(fig_blocks, use_container_width=True)
+        st.dataframe(grouped, use_container_width=True, hide_index=True)
 
 
 def render_game_timeline(client: ZeusClient, game_id: str, market_field: str) -> None:
@@ -654,7 +691,14 @@ def main() -> None:
             )
 
         render_metrics(report["backtest"]["metrics"])
-        render_charts(report["backtest"]["result_df"])
+        block_freq = st.selectbox(
+            "Profit por blocos",
+            options=["D", "W", "M"],
+            format_func=lambda value: {"D": "Dia", "W": "Semana", "M": "Mes"}.get(value, value),
+            index=0,
+            help="Agrupa o lucro por dia, semana ou mes.",
+        )
+        render_charts(report["backtest"]["result_df"], block_freq=block_freq)
 
         st.subheader("Resultados")
         display_columns = [
