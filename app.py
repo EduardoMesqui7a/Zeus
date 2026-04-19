@@ -357,11 +357,12 @@ def load_backtest_report(
     final_minute: int,
 ) -> dict:
     sanitized_base, stripped_base = sanitize_query_terms(base_query)
+    sanitized_final, stripped_final = sanitize_query_terms(final_filter or "")
     full_query = sanitized_base
-    final_filter = (final_filter or "").strip()
-    if final_filter:
-        full_query = f"({sanitized_base}) and ({final_filter})" if sanitized_base else final_filter
+    if sanitized_final:
+        full_query = f"({sanitized_base}) and ({sanitized_final})" if sanitized_base else sanitized_final
     stripped_terms = stripped_base
+    stripped_terms.extend(stripped_final)
 
     async def _load() -> dict:
         async with AsyncZeusClient(auth_token=_token) as async_client:
@@ -373,7 +374,11 @@ def load_backtest_report(
                 include_count=True,
             )
             base_count_info, full_bundle = await asyncio.gather(base_count_task, full_rows_task)
-            full_count_info, lucy_rows = full_bundle
+            if isinstance(full_bundle, tuple) and len(full_bundle) == 2:
+                full_count_info, lucy_rows = full_bundle
+            else:
+                lucy_rows = list(full_bundle or [])
+                full_count_info = len(lucy_rows)
             config = BacktestConfig(
                 market_label=market_label,
                 stake=float(stake),
@@ -389,6 +394,7 @@ def load_backtest_report(
                 "backtest": backtest,
                 "full_query": full_query,
                 "stripped_terms": stripped_terms,
+                "sanitized_final_filter": sanitized_final,
             }
 
     return _run_async(_load())
@@ -570,7 +576,12 @@ def main() -> None:
         max_pages = st.number_input("Max pages Lucy", min_value=1, value=25, step=1)
         max_games = st.number_input("Max jogos", min_value=1, value=250, step=10)
         entry_override = st.text_input("Entry minute override", value="", help="Opcional. Ex: 20, 89 ou 500.")
-        final_override = st.text_input("Final minute override", value="500", help="Normalmente 500.")
+        final_override = st.text_input(
+            "Final minute override",
+            value="",
+            placeholder="500",
+            help="Opcional. Deixe vazio para usar o padrao tecnico do app.",
+        )
         run = st.button("Consultar Zeus / Lucy", type="primary", use_container_width=True)
 
     if run:
@@ -580,9 +591,13 @@ def main() -> None:
         base_query = strategy_query.strip()
         final_filter = final_check.strip()
         try:
+            sanitized_base, _ = sanitize_query_terms(base_query)
+            if not sanitized_base:
+                st.error("A strategy query ficou vazia depois da limpeza. Ajuste os termos e tente de novo.")
+                return
             full_query = base_query
-            if final_filter:
-                full_query = f"({base_query}) and ({final_filter})" if base_query else final_filter
+            sanitized_final, _ = sanitize_query_terms(final_filter)
+            full_query = sanitized_base
             entry_minute = int(entry_override) if entry_override.strip() else infer_entry_minute(full_query)
             final_minute = int(final_override) if final_override.strip() else 500
         except ValueError:
@@ -617,6 +632,7 @@ def main() -> None:
                 <strong>Strategy query:</strong> {base_query}<br/>
                 <strong>Final check:</strong> {final_filter or 'nenhum'}<br/>
                 <strong>Query completa:</strong> {report['full_query']}<br/>
+                <strong>Final check seguro:</strong> {report.get('sanitized_final_filter') or 'nenhum'}<br/>
                 <strong>Minutos detectados:</strong> {', '.join(map(str, extract_minute_refs(report['full_query']))) or 'nenhum'}<br/>
                 <strong>Entry minute usado:</strong> {report['backtest']['config'].entry_minute}<br/>
                 <strong>Universo base:</strong> {report['base_count_info'].get('count', 0)}<br/>

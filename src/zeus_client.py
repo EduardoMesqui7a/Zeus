@@ -187,8 +187,12 @@ class ZeusClient:
                 f"Acesso negado ao endpoint {url}. Verifique se o token de acesso ainda esta valido."
             )
         if response.status_code >= 400:
+            body = (response.text or "").strip().replace("\n", " ")
+            if len(body) > 300:
+                body = body[:300] + "..."
             raise ZeusClientError(
                 f"Falha ao consultar {url}: HTTP {response.status_code}"
+                + (f" | Resposta: {body}" if body else "")
             )
         try:
             return response.json()
@@ -199,10 +203,14 @@ class ZeusClient:
         return self._request_json("GET", f"{AUTH_API_BASE_URL}/users/profile")
 
     def count(self, query: str) -> dict[str, Any]:
+        if not (query or "").strip():
+            raise ZeusClientError("Consulta vazia nao permitida no Zeus.")
         payload = {"query": query}
         return self._request_json("POST", f"{GAMES_API_BASE_URL}/legacy/zeus", json=payload)
 
     def search_page(self, query: str, page: int = 1) -> dict[str, Any]:
+        if not (query or "").strip():
+            raise ZeusClientError("Consulta vazia nao permitida na Lucy.")
         payload = {"query": query, "page": int(page)}
         return self._request_json("POST", f"{GAMES_API_BASE_URL}/legacy/lucy", json=payload)
 
@@ -413,13 +421,22 @@ class AsyncZeusClient:
             max_connections=self.config.max_connections,
             max_keepalive_connections=self.config.max_keepalive_connections,
         )
-        self._client = httpx.AsyncClient(
-            headers=self._headers(),
-            timeout=self.config.timeout,
-            limits=limits,
-            http2=True,
-            follow_redirects=True,
-        )
+        try:
+            self._client = httpx.AsyncClient(
+                headers=self._headers(),
+                timeout=self.config.timeout,
+                limits=limits,
+                http2=True,
+                follow_redirects=True,
+            )
+        except (ImportError, ModuleNotFoundError):
+            self._client = httpx.AsyncClient(
+                headers=self._headers(),
+                timeout=self.config.timeout,
+                limits=limits,
+                http2=False,
+                follow_redirects=True,
+            )
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
@@ -450,7 +467,13 @@ class AsyncZeusClient:
                 if response.status_code in (408, 425, 429, 500, 502, 503, 504) and attempt < 2:
                     await asyncio.sleep(0.35 * (attempt + 1))
                     continue
-                raise ZeusClientError(f"Falha ao consultar {url}: HTTP {response.status_code}")
+                body = (response.text or "").strip().replace("\n", " ")
+                if len(body) > 300:
+                    body = body[:300] + "..."
+                raise ZeusClientError(
+                    f"Falha ao consultar {url}: HTTP {response.status_code}"
+                    + (f" | Resposta: {body}" if body else "")
+                )
             try:
                 return response.json()
             except ValueError as exc:
@@ -461,6 +484,8 @@ class AsyncZeusClient:
         raise ZeusClientError(f"Falha ao consultar {url}.")
 
     async def count(self, query: str) -> dict[str, Any]:
+        if not (query or "").strip():
+            raise ZeusClientError("Consulta vazia nao permitida no Zeus.")
         payload = {"query": query}
         data = await self._request_json("POST", f"{GAMES_API_BASE_URL}/legacy/zeus", json=payload)
         if not isinstance(data, dict):
@@ -468,6 +493,8 @@ class AsyncZeusClient:
         return data
 
     async def search_page(self, query: str, page: int = 1) -> dict[str, Any]:
+        if not (query or "").strip():
+            raise ZeusClientError("Consulta vazia nao permitida na Lucy.")
         payload = {"query": query, "page": int(page)}
         data = await self._request_json("POST", f"{GAMES_API_BASE_URL}/legacy/lucy", json=payload)
         if not isinstance(data, dict):
@@ -488,13 +515,18 @@ class AsyncZeusClient:
         current_page = int(first_page.get("currentPage") or 1)
         rows = list(first_page.get("result") or [])
 
+        def _pack(result_rows: list[dict[str, Any]]) -> list[dict[str, Any]] | tuple[int, list[dict[str, Any]]]:
+            if include_count:
+                return total_count, result_rows
+            return result_rows
+
         page_limit = total_pages if max_pages is None else min(total_pages, int(max_pages))
         if max_games is not None and len(rows) >= max_games:
-            return rows[:max_games]
+            return _pack(rows[:max_games])
 
         page_numbers = list(range(current_page + 1, page_limit + 1))
         if not page_numbers:
-            return rows[:max_games] if max_games is not None else rows
+            return _pack(rows[:max_games] if max_games is not None else rows)
 
         sem = asyncio.Semaphore(self.config.page_concurrency)
 
@@ -517,9 +549,7 @@ class AsyncZeusClient:
                 continue
             seen.add(key)
             deduped.append(row)
-        if include_count:
-            return total_count, deduped
-        return deduped
+        return _pack(deduped)
 
     async def fetch_snapshot(self, game_id: str, minute: int, period: int) -> dict[str, Any]:
         url = f"{GAMES_API_BASE_URL}/legacy/lucy/{game_id}"
