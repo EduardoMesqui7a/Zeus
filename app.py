@@ -405,7 +405,8 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
             grouped = grouped.rename(columns={"match_datetime": period_label}).copy()
             if "profit" in grouped.columns:
                 grouped["profit"] = grouped["profit"].map(format_brl)
-            st.dataframe(grouped, use_container_width=True, hide_index=True)
+            grouped_style = grouped.style.set_properties(**{"text-align": "center"})
+            st.dataframe(grouped_style, use_container_width=True, hide_index=True)
 
 
 def render_game_timeline(client: ZeusClient, game_id: str, market_field: str) -> None:
