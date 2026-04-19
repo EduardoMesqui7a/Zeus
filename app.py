@@ -21,7 +21,11 @@ from src.backtest import (
 from src.optimization import (
     add_date_filter,
     build_int_range,
-    candidate_product,
+    build_snapshot_filter_groups,
+    candidate_product_with_snapshot_filters,
+    expand_query_variants_with_filter_groups,
+    infer_snapshot_field_keys,
+    SNAPSHOT_FIELD_PRESETS,
     sort_optimization_records,
     split_query_variants,
 )
@@ -721,6 +725,8 @@ def parse_optional_date(text: str) -> str:
     return text.strip()
 
 
+
+
 def render_optimization_tab(
     token: str,
     strategy_query: str,
@@ -733,54 +739,127 @@ def render_optimization_tab(
     entry_minute_default: int,
     final_minute_default: int,
 ) -> None:
-    st.subheader("Otimização")
-    st.caption("Varra parâmetros, compare combinações e ranqueie as melhores estratégias.")
+    st.subheader("Otimiza??o")
+    st.caption("Vamos varrer par?metros, comparar combina??es e ranquear as melhores estrat?gias.")
+
+    field_meta_map = {str(field["key"]): field for field in SNAPSHOT_FIELD_PRESETS}
+    default_snapshot_fields = infer_snapshot_field_keys(strategy_query, SNAPSHOT_FIELD_PRESETS)
 
     with st.form("zeus_optimization_form", clear_on_submit=False):
+        st.markdown("#### Entradas principais")
         col_left, col_right = st.columns(2)
 
         with col_left:
             strategy_variants_text = st.text_area(
-                "Consultas candidatas",
+                "Consulta da estrat?gia",
                 value=strategy_query,
-                height=200,
-                help="Use uma consulta por bloco. Separe variantes com uma linha contendo --- ou com linhas em branco.",
+                height=210,
+                help="Uma consulta por bloco. Separe variantes com --- ou com linhas em branco.",
             )
             final_variants_text = st.text_area(
-                "Verificações finais candidatas",
+                "Verifica??o final",
                 value=final_check,
-                height=140,
-                help="Use uma regra por bloco. Se deixar uma única regra, ela será usada em todas as combinações.",
+                height=120,
+                help="Use uma regra por bloco. Se houver s? uma, ela vale para todas as combina??es.",
             )
             market_label_opt = st.selectbox(
-                "Mercado para otimizar",
+                "Mercado",
                 list(MARKET_OPTIONS.keys()),
                 index=list(MARKET_OPTIONS.keys()).index(market_label) if market_label in MARKET_OPTIONS else 0,
             )
-            min_bets = st.number_input("Mínimo de bets para considerar", min_value=1, value=20, step=1)
-            combo_limit = st.number_input("Limite de combinações", min_value=1, value=200, step=10)
+            min_bets = st.number_input("M?nimo de bets", min_value=1, value=20, step=1)
+            combo_limit = st.number_input("Limite de combina??es", min_value=1, value=200, step=10)
             top_n_validation = st.number_input("Top N para validar", min_value=1, value=20, step=1)
 
         with col_right:
-            entry_start = st.number_input("Minuto de entrada - início", min_value=1, max_value=500, value=max(1, entry_minute_default - 10), step=1)
-            entry_end = st.number_input("Minuto de entrada - fim", min_value=1, max_value=500, value=min(500, entry_minute_default + 10), step=1)
+            entry_start = st.number_input(
+                "Minuto de entrada - in?cio", min_value=1, max_value=500, value=max(1, entry_minute_default - 10), step=1
+            )
+            entry_end = st.number_input(
+                "Minuto de entrada - fim", min_value=1, max_value=500, value=min(500, entry_minute_default + 10), step=1
+            )
             entry_step = st.number_input("Minuto de entrada - passo", min_value=1, max_value=100, value=1, step=1)
-            final_start = st.number_input("Minuto de saída - início", min_value=1, max_value=500, value=max(1, final_minute_default - 10), step=1)
-            final_end = st.number_input("Minuto de saída - fim", min_value=1, max_value=500, value=min(500, final_minute_default + 10), step=1)
-            final_step = st.number_input("Minuto de saída - passo", min_value=1, max_value=100, value=1, step=1)
-            train_start_text = st.text_input("Treino - início (YYYY-MM-DD)", value="", placeholder="2022-01-01")
+            final_start = st.number_input(
+                "Minuto de sa?da - in?cio", min_value=1, max_value=500, value=max(1, final_minute_default - 10), step=1
+            )
+            final_end = st.number_input(
+                "Minuto de sa?da - fim", min_value=1, max_value=500, value=min(500, final_minute_default + 10), step=1
+            )
+            final_step = st.number_input("Minuto de sa?da - passo", min_value=1, max_value=100, value=1, step=1)
+            train_start_text = st.text_input("Treino - in?cio (YYYY-MM-DD)", value="", placeholder="2022-01-01")
             train_end_text = st.text_input("Treino - fim (YYYY-MM-DD)", value="", placeholder="2022-12-31")
-            validation_enabled = st.checkbox("Validar melhores combinações fora da amostra", value=True)
-            validation_start_text = st.text_input("Validação - início (YYYY-MM-DD)", value="", placeholder="2023-01-01")
-            validation_end_text = st.text_input("Validação - fim (YYYY-MM-DD)", value="", placeholder="2023-12-31")
-            search_max_pages = st.number_input("Máximo de páginas na Lucy", min_value=1, value=max_pages, step=1)
-            search_max_games = st.number_input("Máximo de jogos por combinação", min_value=1, value=max_games, step=10)
+            validation_enabled = st.checkbox("Validar melhores combina??es fora da amostra", value=True)
+            validation_start_text = st.text_input("Valida??o - in?cio (YYYY-MM-DD)", value="", placeholder="2023-01-01")
+            validation_end_text = st.text_input("Valida??o - fim (YYYY-MM-DD)", value="", placeholder="2023-12-31")
+            search_max_pages = st.number_input("M?ximo de p?ginas na Lucy", min_value=1, value=max_pages, step=1)
+            search_max_games = st.number_input("M?ximo de jogos por combina??o", min_value=1, value=max_games, step=10)
 
-        submit = st.form_submit_button("Rodar otimização", use_container_width=True, type="primary")
+        snapshot_field_configs: list[dict[str, object]] = []
+        with st.expander("Filtros extras do snapshot", expanded=bool(default_snapshot_fields)):
+            st.caption("Marque s? os campos que voc? quer testar. Quanto mais filtros, maior o n?mero de combina??es.")
+            selected_snapshot_fields = st.multiselect(
+                "Campos extras",
+                options=[str(field["key"]) for field in SNAPSHOT_FIELD_PRESETS],
+                default=default_snapshot_fields,
+                format_func=lambda key: field_meta_map[str(key)]["label"],
+                key="zeus_optimization_snapshot_fields",
+            )
+            if selected_snapshot_fields:
+                for field_key in selected_snapshot_fields:
+                    meta = field_meta_map[str(field_key)]
+                    with st.container(border=True):
+                        st.markdown(f"**{meta['label']}**")
+                        st.caption(f"`{meta['expression']}` | operador fixo `{meta['operator']}`")
+                        row_start, row_end, row_step = st.columns(3)
+
+                        def _widget_value(value: float, precision: int) -> float | int:
+                            return int(value) if precision == 0 else float(value)
+
+                        with row_start:
+                            start_value = st.number_input(
+                                "In?cio",
+                                min_value=0 if int(meta["precision"]) == 0 else 0.0,
+                                value=_widget_value(float(meta["default_start"]), int(meta["precision"])),
+                                step=_widget_value(float(meta["default_step"]), int(meta["precision"])),
+                                key=f"zeus_opt_{field_key}_start",
+                            )
+                        with row_end:
+                            end_value = st.number_input(
+                                "Fim",
+                                min_value=0 if int(meta["precision"]) == 0 else 0.0,
+                                value=_widget_value(float(meta["default_end"]), int(meta["precision"])),
+                                step=_widget_value(float(meta["default_step"]), int(meta["precision"])),
+                                key=f"zeus_opt_{field_key}_end",
+                            )
+                        with row_step:
+                            step_value = st.number_input(
+                                "Passo",
+                                min_value=0.01 if int(meta["precision"]) else 1,
+                                value=_widget_value(float(meta["default_step"]), int(meta["precision"])),
+                                step=_widget_value(float(meta["default_step"]), int(meta["precision"])),
+                                key=f"zeus_opt_{field_key}_step",
+                            )
+                        snapshot_field_configs.append(
+                            {
+                                "enabled": True,
+                                "key": str(meta["key"]),
+                                "label": str(meta["label"]),
+                                "expression": str(meta["expression"]),
+                                "operator": str(meta["operator"]),
+                                "start": float(start_value),
+                                "end": float(end_value),
+                                "step": float(step_value),
+                                "precision": int(meta["precision"]),
+                            }
+                        )
+            else:
+                st.info("Nenhum filtro extra selecionado. A otimiza??o vai usar apenas a consulta e os minutos.")
+
+        submit = st.form_submit_button("Rodar otimiza??o", use_container_width=True, type="primary")
 
     if submit:
         if not token.strip():
-            st.error("Entre com email/senha acima ou informe um token opcional antes de rodar a otimização.")
+            st.error("Entre com email/senha acima ou informe um token opcional antes de rodar a otimiza??o.")
             return
         try:
             entry_minutes = build_int_range(int(entry_start), int(entry_end), int(entry_step))
@@ -791,13 +870,15 @@ def render_optimization_tab(
 
         base_queries = split_query_variants(strategy_variants_text)
         final_filters = split_query_variants(final_variants_text)
-        combos = candidate_product(base_queries, final_filters, entry_minutes, final_minutes)
+        snapshot_filter_groups = build_snapshot_filter_groups(snapshot_field_configs)
+        base_variants = expand_query_variants_with_filter_groups(base_queries, snapshot_filter_groups)
+        combos = candidate_product_with_snapshot_filters(base_variants, final_filters, entry_minutes, final_minutes)
         total_combos = len(combos)
         if total_combos == 0:
-            st.error("Nenhuma combinação foi gerada. Verifique os intervalos e as consultas candidatas.")
+            st.error("Nenhuma combina??o foi gerada. Verifique os intervalos e as consultas candidatas.")
             return
         if total_combos > int(combo_limit):
-            st.warning(f"Foram geradas {total_combos} combinações; vou executar apenas as primeiras {int(combo_limit)}.")
+            st.warning(f"Foram geradas {total_combos} combina??es; vou executar apenas as primeiras {int(combo_limit)}.")
             combos = combos[: int(combo_limit)]
 
         def _join_query_parts(left: str, right: str) -> str:
@@ -836,8 +917,8 @@ def render_optimization_tab(
                     return rows_cache[full_query]
 
                 for index, combo in enumerate(combos, start=1):
-                    status.write(f"Executando {index}/{len(combos)} — entrada {combo['entry_minute']} / saída {combo['final_minute']}")
-                    sanitized_base, _ = sanitize_query_terms(str(combo["base_query"]))
+                    status.write(f"Executando {index}/{len(combos)} ? entrada {combo['entry_minute']} / sa?da {combo['final_minute']}")
+                    sanitized_base, _ = sanitize_query_terms(str(combo["augmented_base_query"]))
                     sanitized_final, _ = sanitize_query_terms(str(combo["final_filter"]))
                     train_query = add_date_filter(sanitized_base, train_start_text, train_end_text)
                     train_filter = add_date_filter(sanitized_final, train_start_text, train_end_text)
@@ -858,8 +939,9 @@ def render_optimization_tab(
                         metrics = train_report["metrics"]
                         train_records.append(
                             {
-                                "combo_key": f"{combo['base_query']}|{combo['final_filter']}|{combo['entry_minute']}|{combo['final_minute']}",
-                                "base_query": combo["base_query"],
+                                "combo_key": f"{combo['augmented_base_query']}|{combo['final_filter']}|{combo['entry_minute']}|{combo['final_minute']}",
+                                "snapshot_filters": " AND ".join(combo.get("snapshot_filters") or []),
+                                "augmented_base_query": combo["augmented_base_query"],
                                 "final_filter": combo["final_filter"],
                                 "executed_train_query": full_train_query,
                                 "entry_minute": int(combo["entry_minute"]),
@@ -878,8 +960,9 @@ def render_optimization_tab(
                     except Exception as exc:
                         train_records.append(
                             {
-                                "combo_key": f"{combo['base_query']}|{combo['final_filter']}|{combo['entry_minute']}|{combo['final_minute']}",
-                                "base_query": combo["base_query"],
+                                "combo_key": f"{combo['augmented_base_query']}|{combo['final_filter']}|{combo['entry_minute']}|{combo['final_minute']}",
+                                "snapshot_filters": " AND ".join(combo.get("snapshot_filters") or []),
+                                "augmented_base_query": combo["augmented_base_query"],
                                 "final_filter": combo["final_filter"],
                                 "executed_train_query": full_train_query,
                                 "entry_minute": int(combo["entry_minute"]),
@@ -903,9 +986,10 @@ def render_optimization_tab(
                 ranking_df = pd.DataFrame(ordered_train_records)
 
                 if validation_enabled and not ranking_df.empty:
-                    for index, record in enumerate(ranking_df.head(int(top_n_validation)).to_dict("records"), start=1):
-                        status.write(f"Validando {index}/{min(int(top_n_validation), len(ranking_df))} — entrada {record['entry_minute']} / saída {record['final_minute']}")
-                        sanitized_base, _ = sanitize_query_terms(str(record["base_query"]))
+                    validation_target = min(int(top_n_validation), len(ranking_df))
+                    for index, record in enumerate(ranking_df.head(validation_target).to_dict("records"), start=1):
+                        status.write(f"Validando {index}/{validation_target} ? entrada {record['entry_minute']} / sa?da {record['final_minute']}")
+                        sanitized_base, _ = sanitize_query_terms(str(record["augmented_base_query"]))
                         sanitized_final, _ = sanitize_query_terms(str(record["final_filter"]))
                         validation_query = add_date_filter(sanitized_base, validation_start_text, validation_end_text)
                         validation_filter = add_date_filter(sanitized_final, validation_start_text, validation_end_text)
@@ -976,24 +1060,25 @@ def render_optimization_tab(
             "validation_start_text": validation_start_text,
             "validation_end_text": validation_end_text,
         }
-        st.success("Otimização concluída.")
+        st.success("Otimiza??o conclu?da.")
 
     results = st.session_state.get("zeus_optimization_results")
     if not results:
-        st.info("Configure os parâmetros acima e rode a otimização para ver o ranking.")
+        st.info("Configure os par?metros acima e rode a otimiza??o para ver o ranking.")
         return
 
     ranking_df = results.get("ranking_df") if isinstance(results, dict) else None
     train_df = results.get("train_df") if isinstance(results, dict) else None
     validation_df = results.get("validation_df") if isinstance(results, dict) else None
     if not isinstance(ranking_df, pd.DataFrame) or ranking_df.empty:
-        st.warning("A otimização não encontrou combinações válidas suficientes para ranquear.")
+        st.warning("A otimiza??o n?o encontrou combina??es v?lidas suficientes para ranquear.")
         return
 
     st.subheader("Ranking")
     display_columns = [
         "entry_minute",
         "final_minute",
+        "snapshot_filters",
         "train_bets",
         "train_win_rate",
         "train_roi",
@@ -1012,25 +1097,23 @@ def render_optimization_tab(
     st.dataframe(display_df.head(50), use_container_width=True, hide_index=True)
 
     best_row = ranking_df.iloc[0].to_dict()
-    st.subheader("Melhor combinação")
+    st.subheader("Melhor combina??o")
     st.write(
-        f"Entrada {best_row.get('entry_minute')} | Saída {best_row.get('final_minute')} | "
+        f"Entrada {best_row.get('entry_minute')} | Sa?da {best_row.get('final_minute')} | "
         f"ROI treino {float(best_row.get('train_roi') or 0):.2f}%"
         + (
-            f" | ROI validação {float(best_row.get('validation_roi') or 0):.2f}%"
+            f" | ROI valida??o {float(best_row.get('validation_roi') or 0):.2f}%"
             if 'validation_roi' in best_row
             else ""
         )
     )
-    st.code(
-        f"{best_row.get('base_query', '')}\n\n{best_row.get('final_filter', '')}",
-        language="text",
-    )
+    if best_row.get("snapshot_filters"):
+        st.caption(f"Filtros extras: {best_row.get('snapshot_filters')}")
     with st.expander("Ver queries executadas"):
         st.write("Treino")
         st.code(str(best_row.get("executed_train_query") or ""), language="text")
         if best_row.get("executed_validation_query"):
-            st.write("Validação")
+            st.write("Valida??o")
             st.code(str(best_row.get("executed_validation_query") or ""), language="text")
 
     csv_data = ranking_df.to_csv(index=False).encode("utf-8")
@@ -1049,7 +1132,7 @@ def render_optimization_tab(
         default=str,
     ).encode("utf-8")
     st.download_button("Baixar ranking CSV", data=csv_data, file_name="zeus_optimization_ranking.csv", mime="text/csv")
-    st.download_button("Baixar melhor estratégia JSON", data=json_data, file_name="zeus_best_strategy.json", mime="application/json")
+    st.download_button("Baixar melhor estrat?gia JSON", data=json_data, file_name="zeus_best_strategy.json", mime="application/json")
 
 
 def main() -> None:
