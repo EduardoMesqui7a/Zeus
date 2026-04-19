@@ -274,9 +274,10 @@ class ZeusClient:
             start_period, start_minute = absolute_to_period_minute(final_minute)
 
         attempts: list[tuple[int, int]] = []
-        attempts.extend((start_period, minute) for minute in range(int(start_minute), 0, -1))
+        lower_bound = 46 if start_period == 2 else 1
+        attempts.extend((start_period, minute) for minute in range(int(start_minute), lower_bound - 1, -1))
         if final_minute == 500 and start_period == 2:
-            attempts = [(2, minute) for minute in range(90, 44, -1)]
+            attempts = [(2, minute) for minute in range(90, 45, -1)]
 
         last_error: Exception | None = None
         for period, minute in attempts:
@@ -344,8 +345,8 @@ class ZeusClient:
 
     def fetch_timeline(self, game_id: str, market_field: str = "BackUnder25FT") -> list[dict[str, Any]]:
         timeline: list[dict[str, Any]] = []
-        for period, max_minute in ((1, 45), (2, 90)):
-            for minute in range(1, max_minute + 1):
+        for period, start_minute, end_minute in ((1, 1, 45), (2, 46, 90)):
+            for minute in range(start_minute, end_minute + 1):
                 try:
                     snap = self.fetch_snapshot(game_id, minute=minute, period=period)
                 except Exception:
@@ -674,7 +675,11 @@ class AsyncZeusClient:
                     "pressao2_visitante": snap.get("Pressao2Visitante"),
                 }
 
-        tasks = [_fetch_one(period, minute) for period, max_minute in ((1, 45), (2, 90)) for minute in range(1, max_minute + 1)]
+        tasks = [
+            _fetch_one(period, minute)
+            for period, start_minute, end_minute in ((1, 1, 45), (2, 46, 90))
+            for minute in range(start_minute, end_minute + 1)
+        ]
         results = await asyncio.gather(*tasks)
         for row in results:
             if row is not None:

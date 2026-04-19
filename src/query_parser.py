@@ -46,15 +46,11 @@ def absolute_to_period_minute(minute: int) -> tuple[int, int]:
     if minute <= 0:
         return 1, 1
     if minute == 500:
-        return 2, 45
+        return 2, 90
     if minute <= 45:
         return 1, minute
-    if minute <= 90:
-        return 2, minute - 45
-    return 2, 45
+    return 2, minute
 
 
 def period_minute_to_absolute(period: int, minute: int) -> int:
-    if period == 1:
-        return minute
-    return 45 + minute
+    return minute
