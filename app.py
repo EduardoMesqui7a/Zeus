@@ -145,6 +145,18 @@ def inject_styles() -> None:
                 font-weight: 800;
                 color: #0f172a;
             }
+            .metric-profit-positive {
+                color: #0f766e;
+            }
+            .metric-profit-negative {
+                color: #b91c1c;
+            }
+            .metric-profit-positive {
+                color: #0f766e;
+            }
+            .metric-profit-negative {
+                color: #b91c1c;
+            }
             .note-box {
                 border-radius: 18px;
                 background: rgba(15,118,110,0.08);
@@ -169,12 +181,19 @@ def metric_card(label: str, value: str, delta: str | None = None) -> str:
     """
 
 
+def format_brl(value: float) -> str:
+    sign = "-" if value < 0 else ""
+    absolute = abs(value)
+    formatted = f"{absolute:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {sign}{formatted}"
+
+
 def render_metrics(metrics: dict) -> None:
     cols = st.columns(4)
     items = [
         ("Jogos", f"{metrics.get('matches', 0)}"),
-        ("Bets", f"{metrics.get('bets', 0)}"),
-        ("Winrate", f"{metrics.get('win_rate', 0):.2f}%"),
+        ("Entradas", f"{metrics.get('bets', 0)}"),
+        ("Taxa de acerto", f"{metrics.get('win_rate', 0):.2f}%"),
         ("ROI", f"{metrics.get('roi', 0):.2f}%"),
     ]
     for col, (label, value) in zip(cols, items, strict=False):
@@ -182,15 +201,22 @@ def render_metrics(metrics: dict) -> None:
             st.markdown(metric_card(label, value), unsafe_allow_html=True)
 
     cols = st.columns(4)
+    total_profit = float(metrics.get("total_profit", 0))
+    profit_class = "metric-profit-positive" if total_profit >= 0 else "metric-profit-negative"
     items = [
-        ("Lucro", f"{metrics.get('total_profit', 0):.2f}"),
-        ("Stake", f"{metrics.get('total_risked', 0):.2f}"),
-        ("Maior perda", f"{metrics.get('worst_trade', 0):.2f}"),
-        ("Odd media", f"{metrics.get('avg_entry_odd', 0):.2f}"),
+        ("Lucro", f"{format_brl(total_profit)}", profit_class),
+        ("Stake", f"{format_brl(float(metrics.get('total_risked', 0)))}"),
+        ("Maior perda", f"{format_brl(float(metrics.get('worst_trade', 0)))}"),
+        ("Odd média", f"{metrics.get('avg_entry_odd', 0):.2f}"),
     ]
-    for col, (label, value) in zip(cols, items, strict=False):
+    for col, item in zip(cols, items, strict=False):
+        label, value, *style_class = item
+        style_class = style_class[0] if style_class else ""
         with col:
-            st.markdown(metric_card(label, value), unsafe_allow_html=True)
+            if style_class:
+                st.markdown(metric_card(label, value).replace('class="metric-value"', f'class="metric-value {style_class}"'), unsafe_allow_html=True)
+            else:
+                st.markdown(metric_card(label, value), unsafe_allow_html=True)
 
 
 def build_results_display_df(result_df: pd.DataFrame) -> pd.DataFrame:
@@ -379,7 +405,7 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
 def render_game_timeline(client: ZeusClient, game_id: str, market_field: str) -> None:
     timeline = client.fetch_timeline(game_id, market_field=market_field)
     if not timeline:
-        st.info("Nao foi possivel montar a linha do tempo deste jogo.")
+        st.info("N?o foi poss?vel montar a linha do tempo deste jogo.")
         return
 
     df = pd.DataFrame(timeline)
@@ -422,7 +448,7 @@ def render_game_timeline(client: ZeusClient, game_id: str, market_field: str) ->
 
 def render_timeline_frame(timeline: list[dict[str, object]], market_field: str) -> None:
     if not timeline:
-        st.info("Nao foi possivel montar a linha do tempo deste jogo.")
+        st.info("N?o foi poss?vel montar a linha do tempo deste jogo.")
         return
 
     df = pd.DataFrame(timeline)
@@ -467,10 +493,10 @@ def render_report_view(report: dict, token: str, market_label: str, base_query: 
     st.markdown(
         f"""
         <div class="note-box">
-            <strong>Strategy query:</strong> {base_query}<br/>
-            <strong>Final check:</strong> {final_filter or 'nenhum'}<br/>
+            <strong>Consulta da estratégia:</strong> {base_query}<br/>
+            <strong>Verificação final:</strong> {final_filter or 'nenhuma'}<br/>
             <strong>Query completa:</strong> {report['full_query']}<br/>
-            <strong>Final check seguro:</strong> {report.get('sanitized_final_filter') or 'nenhum'}<br/>
+            <strong>Verificação final segura:</strong> {report.get('sanitized_final_filter') or 'nenhuma'}<br/>
             <strong>Minutos detectados:</strong> {', '.join(map(str, extract_minute_refs(report['full_query']))) or 'nenhum'}<br/>
             <strong>Entry minute usado:</strong> {report['backtest']['config'].entry_minute}<br/>
             <strong>Final minute usado:</strong> {report['backtest']['config'].final_minute}<br/>
@@ -486,8 +512,8 @@ def render_report_view(report: dict, token: str, market_label: str, base_query: 
 
     if report.get("stripped_terms"):
         st.warning(
-            "Removi termos com informacao futura da strategy query antes de pesquisar. "
-            "Isso evita look-ahead bias e explica por que o winrate nao deve ser 100% so por causa do resultado final."
+            "Removi termos com informação futura da consulta da estratégia antes de pesquisar. "
+            "Isso evita look-ahead bias e explica por que a taxa de acerto não deve ser 100% só por causa do resultado final."
         )
 
     render_metrics(report["backtest"]["metrics"])
@@ -518,7 +544,7 @@ def render_report_view(report: dict, token: str, market_label: str, base_query: 
         )
         selected_rows = report["backtest"]["result_df"].loc[report["backtest"]["result_df"]["display_label"].eq(selected_label)]
         if selected_rows.empty:
-            st.warning("Nao foi possivel localizar o jogo selecionado.")
+            st.warning("N?o foi poss?vel localizar o jogo selecionado.")
             return
         selected = selected_rows.iloc[0]
         st.write(f"{selected['display_label']} | entrada {selected['entry_minute']} | odd {selected['entry_odd']:.2f}")
@@ -544,7 +570,7 @@ def render_report_view(report: dict, token: str, market_label: str, base_query: 
                 str(selected["odds_field"]),
             )
         else:
-            st.caption("Selecione o jogo e clique em 'Carregar detalhe do jogo' para buscar a timeline sob demanda.")
+            st.caption("Selecione o jogo e clique em 'Carregar detalhe do jogo' para buscar a linha do tempo sob demanda.")
 
 
 def _run_async(coro):
@@ -655,7 +681,7 @@ def main() -> None:
     )
 
     with st.sidebar:
-        st.header("Configuracao")
+        st.header("Configuração")
         st.caption("Você pode entrar com email/senha e eu extraio a sessão automaticamente.")
         token_in_session = st.session_state.get("zeus_auth_token", "").strip()
         if token_in_session and not st.session_state.get("zeus_checked_session"):
@@ -765,7 +791,7 @@ def main() -> None:
 
         token = st.session_state.get("zeus_auth_token", "").strip()
         strategy_query = st.text_area(
-            "Strategy query",
+            "Consulta da estratégia",
             value=(
                 '(m500.Minuto = 500) and (m500.NivelDados = "Gold") and (m500.DataJogo >= "2022-01-01") '
                 'and (m20.Minuto = 20) and (m20.GolsTotal = 0) and (m20.CartaoVermelhoCasa = 0) '
@@ -778,32 +804,32 @@ def main() -> None:
             height=220,
         )
         final_check = st.text_area(
-            "Final check",
+            "Verificação final",
             value="(m500.GolsTotal <= 2)",
-            help="Regra de liquidacao. Use aqui a condicao final da estrategia.",
+            help="Regra de liquidação. Use aqui a condição final da estratégia.",
             height=90,
         )
         detected_market = detect_market_from_query(strategy_query)
         if detected_market:
-            st.caption(f"Mercado detectado na strategy query: {detected_market}")
+            st.caption(f"Mercado detectado na consulta da estrat?gia: {detected_market}")
         market_options = list(MARKET_OPTIONS.keys())
         default_market_index = market_options.index(detected_market) if detected_market in market_options else 0
         market_label = st.selectbox(
-            "Mercado manual",
+            "Mercado",
             market_options,
             index=default_market_index,
-            help="Escolha o mercado que sera usado no backtest. A strategy query pode sugerir um valor, mas voce pode alterar.",
+            help="Escolha o mercado que será usado no backtest. A consulta da estratégia pode sugerir um valor, mas você pode alterar.",
         )
         stake = st.number_input("Stake por entrada", min_value=1.0, value=100.0, step=10.0)
-        commission = st.number_input("Comissao", min_value=0.0, max_value=0.2, value=0.08, step=0.01, format="%.2f")
-        max_pages = st.number_input("Max pages Lucy", min_value=1, value=25, step=1)
-        max_games = st.number_input("Max jogos", min_value=1, value=250, step=10)
-        entry_override = st.text_input("Entry minute override", value="", help="Opcional. Ex: 20, 89 ou 500.")
+        commission = st.number_input("Comissão", min_value=0.0, max_value=0.2, value=0.08, step=0.01, format="%.2f")
+        max_pages = st.number_input("Máximo de páginas na Lucy", min_value=1, value=200, step=1)
+        max_games = st.number_input("Máximo de jogos", min_value=1, value=1000, step=10)
+        entry_override = st.text_input("Minuto de entrada", value="", help="Opcional. Ex.: 20, 89 ou 500.")
         final_override = st.text_input(
-            "Final minute override",
+            "Minuto de saída",
             value="",
             placeholder="500",
-            help="Opcional. Deixe vazio para usar o padrao tecnico do app.",
+            help="Opcional. Deixe vazio para usar o padr?o t?cnico do app.",
         )
         run = st.button("Consultar Zeus / Lucy", type="primary", use_container_width=True)
 
@@ -816,7 +842,7 @@ def main() -> None:
         try:
             sanitized_base, _ = sanitize_query_terms(base_query)
             if not sanitized_base:
-                st.error("A strategy query ficou vazia depois da limpeza. Ajuste os termos e tente de novo.")
+                st.error("A consulta da estrat?gia ficou vazia depois da limpeza. Ajuste os termos e tente novamente.")
                 return
             full_query = base_query
             sanitized_final, _ = sanitize_query_terms(final_filter)
@@ -862,10 +888,10 @@ def main() -> None:
         st.markdown(
             f"""
             <div class="note-box">
-                <strong>Strategy query:</strong> {base_query}<br/>
-                <strong>Final check:</strong> {final_filter or 'nenhum'}<br/>
+                <strong>Consulta da estrat?gia:</strong> {base_query}<br/>
+                <strong>Verifica??o final:</strong> {final_filter or 'nenhuma'}<br/>
                 <strong>Query completa:</strong> {report['full_query']}<br/>
-                <strong>Final check seguro:</strong> {report.get('sanitized_final_filter') or 'nenhum'}<br/>
+                <strong>Verifica??o final segura:</strong> {report.get('sanitized_final_filter') or 'nenhuma'}<br/>
                 <strong>Minutos detectados:</strong> {', '.join(map(str, extract_minute_refs(report['full_query']))) or 'nenhum'}<br/>
                 <strong>Entry minute usado:</strong> {report['backtest']['config'].entry_minute}<br/>
                 <strong>Final minute usado:</strong> {report['backtest']['config'].final_minute}<br/>
@@ -881,7 +907,7 @@ def main() -> None:
 
         if report.get("stripped_terms"):
             st.warning(
-                "Removi termos com informacao futura da strategy query antes de pesquisar. "
+                "Removi termos com informação futura da consulta da estratégia antes de pesquisar. "
                 "Isso evita look-ahead bias e explica por que o winrate não deve ser 100% só por causa do resultado final."
             )
 
@@ -911,7 +937,7 @@ def main() -> None:
             )
             selected_rows = report["backtest"]["result_df"].loc[report["backtest"]["result_df"]["display_label"].eq(selected_label)]
             if selected_rows.empty:
-                st.warning("Nao foi possivel localizar o jogo selecionado.")
+                st.warning("N?o foi poss?vel localizar o jogo selecionado.")
                 return
             selected = selected_rows.iloc[0]
             st.write(f"{selected['display_label']} | entrada {selected['entry_minute']} | odd {selected['entry_odd']:.2f}")
@@ -937,9 +963,9 @@ def main() -> None:
                     str(selected["odds_field"]),
                 )
             else:
-                st.caption("Selecione o jogo e clique em 'Carregar detalhe do jogo' para buscar a timeline sob demanda.")
+                st.caption("Selecione o jogo e clique em 'Carregar detalhe do jogo' para buscar a linha do tempo sob demanda.")
 
-        st.caption("Consulta concluida com os endpoints internos do Zeus/Lucy.")
+        st.caption("Consulta concluída com os endpoints internos do Zeus/Lucy.")
 
     last_report = st.session_state.get("zeus_last_report")
     last_inputs = st.session_state.get("zeus_last_inputs") or {}
@@ -951,7 +977,7 @@ def main() -> None:
             base_query=str(last_inputs.get("base_query", "")),
             final_filter=str(last_inputs.get("final_filter", "")),
         )
-        st.caption("Consulta concluida com os endpoints internos do Zeus/Lucy.")
+        st.caption("Consulta conclu?da com os endpoints internos do Zeus/Lucy.")
 
 
 if __name__ == "__main__":
