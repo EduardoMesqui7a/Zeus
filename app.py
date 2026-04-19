@@ -781,7 +781,14 @@ def main() -> None:
         detected_market = detect_market_from_query(strategy_query)
         if detected_market:
             st.caption(f"Mercado detectado na strategy query: {detected_market}")
-        market_label = detected_market or ""
+        market_label = st.selectbox(
+            "Mercado manual",
+            list(MARKET_OPTIONS.keys()),
+            index=0,
+            disabled=bool(detected_market),
+            help="Usado apenas se a strategy query nao permitir detectar o mercado automaticamente.",
+        )
+        market_label = detected_market or market_label
         stake = st.number_input("Stake por entrada", min_value=1.0, value=100.0, step=10.0)
         commission = st.number_input("Comissao", min_value=0.0, max_value=0.2, value=0.08, step=0.01, format="%.2f")
         max_pages = st.number_input("Max pages Lucy", min_value=1, value=25, step=1)
@@ -798,9 +805,6 @@ def main() -> None:
     if run:
         if not token.strip():
             st.error("Entre com email/senha acima ou informe um token opcional.")
-            return
-        if not detected_market:
-            st.error("Nao foi possivel detectar o mercado pela strategy query. Inclua um mercado reconhecivel na query para seguir.")
             return
         base_query = strategy_query.strip()
         final_filter = final_check.strip()
