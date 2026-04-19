@@ -402,7 +402,9 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
             )
             st.subheader(f"Profit por {period_label.lower()}")
             st.plotly_chart(fig_blocks, use_container_width=True)
-            grouped = grouped.rename(columns={"match_datetime": period_label})
+            grouped = grouped.rename(columns={"match_datetime": period_label}).copy()
+            if "profit" in grouped.columns:
+                grouped["profit"] = grouped["profit"].map(format_brl)
             st.dataframe(grouped, use_container_width=True, hide_index=True)
 
 
