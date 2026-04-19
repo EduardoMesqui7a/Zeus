@@ -84,6 +84,25 @@ def _final_outcome_any_other_away_win(snapshot: dict[str, Any]) -> bool:
     return away_goals >= 4 and away_goals > home_goals
 
 
+def _early_decision_total_goals(threshold: int) -> Callable[[dict[str, Any]], bool]:
+    def _checker(snapshot: dict[str, Any]) -> bool:
+        return _final_outcome_total_goals(snapshot) >= threshold
+
+    return _checker
+
+
+def _early_decision_btts(snapshot: dict[str, Any]) -> bool:
+    return _final_outcome_btts(snapshot)
+
+
+def _early_decision_any_other_home_win(snapshot: dict[str, Any]) -> bool:
+    return _final_outcome_any_other_home_win(snapshot)
+
+
+def _early_decision_any_other_away_win(snapshot: dict[str, Any]) -> bool:
+    return _final_outcome_any_other_away_win(snapshot)
+
+
 def _first_available(snapshot: dict[str, Any], *fields: str) -> Any:
     for field in fields:
         value = snapshot.get(field)
@@ -96,12 +115,23 @@ def _market_settlement_minute(market: dict[str, Any]) -> int:
     return int(market.get("settle_minute") or 500)
 
 
+def _should_cashout_at_snapshot(market: dict[str, Any], final_snapshot: dict[str, Any], final_minute: int) -> bool:
+    settlement_minute = _market_settlement_minute(market)
+    if final_minute >= settlement_minute:
+        return False
+    early_decision = market.get("early_decision")
+    if callable(early_decision):
+        return not bool(early_decision(final_snapshot))
+    return True
+
+
 MARKET_OPTIONS: dict[str, dict[str, Any]] = {
     "Back Under 0.5 HT": {
         "odds_fields": ["BackUnder05HT", "BackUnder0_5HT", "BackUnder0.5HT"],
         "side": "back",
         "settle": _final_outcome_under_05_ht,
         "settle_minute": 45,
+        "early_decision": _early_decision_total_goals(1),
         "description": "Back no Under 0.5 HT",
     },
     "Lay Under 0.5 HT": {
@@ -109,6 +139,7 @@ MARKET_OPTIONS: dict[str, dict[str, Any]] = {
         "side": "lay",
         "settle": _final_outcome_under_05_ht,
         "settle_minute": 45,
+        "early_decision": _early_decision_total_goals(1),
         "description": "Lay no Under 0.5 HT",
     },
     "Back Over 0.5 HT": {
@@ -116,6 +147,7 @@ MARKET_OPTIONS: dict[str, dict[str, Any]] = {
         "side": "back",
         "settle": _final_outcome_over_05_ht,
         "settle_minute": 45,
+        "early_decision": _early_decision_total_goals(1),
         "description": "Back no Over 0.5 HT",
     },
     "Lay Over 0.5 HT": {
@@ -123,90 +155,105 @@ MARKET_OPTIONS: dict[str, dict[str, Any]] = {
         "side": "lay",
         "settle": _final_outcome_over_05_ht,
         "settle_minute": 45,
+        "early_decision": _early_decision_total_goals(1),
         "description": "Lay no Over 0.5 HT",
     },
     "Back Under 2.5 FT": {
         "odds_fields": ["BackUnder25FT"],
         "side": "back",
         "settle": _final_outcome_under_25,
+        "early_decision": _early_decision_total_goals(3),
         "description": "Back no Under 2.5 FT",
     },
     "Lay Under 2.5 FT": {
         "odds_fields": ["LayUnder25FT"],
         "side": "lay",
         "settle": _final_outcome_under_25,
+        "early_decision": _early_decision_total_goals(3),
         "description": "Lay no Under 2.5 FT",
     },
     "Back Over 2.5 FT": {
         "odds_fields": ["BackOver25FT"],
         "side": "back",
         "settle": lambda snap: not _final_outcome_under_25(snap),
+        "early_decision": _early_decision_total_goals(3),
         "description": "Back no Over 2.5 FT",
     },
     "Lay Over 2.5 FT": {
         "odds_fields": ["LayOver25FT"],
         "side": "lay",
         "settle": lambda snap: not _final_outcome_under_25(snap),
+        "early_decision": _early_decision_total_goals(3),
         "description": "Lay no Over 2.5 FT",
     },
     "Back Under 1.5 FT": {
         "odds_fields": ["BackUnder15FT", "BackUnder1_5FT"],
         "side": "back",
         "settle": _final_outcome_under_15,
+        "early_decision": _early_decision_total_goals(2),
         "description": "Back no Under 1.5 FT",
     },
     "Lay Under 1.5 FT": {
         "odds_fields": ["LayUnder15FT", "LayUnder1_5FT"],
         "side": "lay",
         "settle": _final_outcome_under_15,
+        "early_decision": _early_decision_total_goals(2),
         "description": "Lay no Under 1.5 FT",
     },
     "Back Over 1.5 FT": {
         "odds_fields": ["BackOver15FT", "BackOver1_5FT"],
         "side": "back",
         "settle": _final_outcome_over_15,
+        "early_decision": _early_decision_total_goals(2),
         "description": "Back no Over 1.5 FT",
     },
     "Lay Over 1.5 FT": {
         "odds_fields": ["LayOver15FT", "LayOver1_5FT"],
         "side": "lay",
         "settle": _final_outcome_over_15,
+        "early_decision": _early_decision_total_goals(2),
         "description": "Lay no Over 1.5 FT",
     },
     "Back Over 3.5 FT": {
         "odds_fields": ["BackOver35FT", "BackOver3_5FT"],
         "side": "back",
         "settle": _final_outcome_over_25,
+        "early_decision": _early_decision_total_goals(4),
         "description": "Back no Over 3.5 FT",
     },
     "Lay Over 3.5 FT": {
         "odds_fields": ["LayOver35FT", "LayOver3_5FT"],
         "side": "lay",
         "settle": _final_outcome_over_25,
+        "early_decision": _early_decision_total_goals(4),
         "description": "Lay no Over 3.5 FT",
     },
     "Back BTTS Sim": {
         "odds_fields": ["BackBttsSim"],
         "side": "back",
         "settle": _final_outcome_btts,
+        "early_decision": _early_decision_btts,
         "description": "Back BTTS Sim",
     },
     "Back BTTS Nao": {
         "odds_fields": ["BackBttsNao"],
         "side": "back",
         "settle": lambda snap: not _final_outcome_btts(snap),
+        "early_decision": _early_decision_btts,
         "description": "Back BTTS Nao",
     },
     "Lay BTTS Sim": {
         "odds_fields": ["LayBttsSim"],
         "side": "lay",
         "settle": _final_outcome_btts,
+        "early_decision": _early_decision_btts,
         "description": "Lay BTTS Sim",
     },
     "Lay BTTS Nao": {
         "odds_fields": ["LayBttsNao"],
         "side": "lay",
         "settle": lambda snap: not _final_outcome_btts(snap),
+        "early_decision": _early_decision_btts,
         "description": "Lay BTTS Nao",
     },
     "Back Casa FT": {
@@ -249,6 +296,7 @@ MARKET_OPTIONS: dict[str, dict[str, Any]] = {
         "odds_fields": ["LayOver05FT", "LayOver0_5FT", "LayOver0.5FT"],
         "side": "lay",
         "settle": _final_outcome_over_05,
+        "early_decision": _early_decision_total_goals(1),
         "description": "Lay over 0.5 FT",
     },
     "Lay Goleada Casa FT": {
@@ -260,6 +308,7 @@ MARKET_OPTIONS: dict[str, dict[str, Any]] = {
         ],
         "side": "lay",
         "settle": _final_outcome_any_other_home_win,
+        "early_decision": _early_decision_any_other_home_win,
         "description": "Lay goleada casa FT",
     },
     "Lay Goleada Fora FT": {
@@ -271,6 +320,7 @@ MARKET_OPTIONS: dict[str, dict[str, Any]] = {
         ],
         "side": "lay",
         "settle": _final_outcome_any_other_away_win,
+        "early_decision": _early_decision_any_other_away_win,
         "description": "Lay goleada fora FT",
     },
     "Back Correct Score 0-0": {
@@ -451,11 +501,18 @@ def _build_row(
         }
     exit_odd = float(exit_odd)
 
-    market_hit = bool(market["settle"](final_snapshot))
-    if market["side"] == "back":
-        profit, risk = _apply_back_profit(config.stake, odd_value, market_hit, config.commission)
+    if _should_cashout_at_snapshot(market, final_snapshot, config.final_minute):
+        if market["side"] == "back":
+            profit, risk = _cashout_back_profit(config.stake, odd_value, exit_odd, config.commission)
+        else:
+            profit, risk = _cashout_lay_profit(config.stake, odd_value, exit_odd, config.commission)
+        market_hit = None
     else:
-        profit, risk = _apply_lay_profit(config.stake, odd_value, market_hit, config.commission)
+        market_hit = bool(market["settle"](final_snapshot))
+        if market["side"] == "back":
+            profit, risk = _apply_back_profit(config.stake, odd_value, market_hit, config.commission)
+        else:
+            profit, risk = _apply_lay_profit(config.stake, odd_value, market_hit, config.commission)
 
     final_goals = _final_outcome_total_goals(final_snapshot)
     match_label = f"{pd.to_datetime(row.get('DataJogo'), errors='coerce').strftime('%Y-%m-%d') if pd.notna(pd.to_datetime(row.get('DataJogo'), errors='coerce')) else 'sem-data'} | {row.get('NomeCasa')} x {row.get('NomeVisitante')} | {game_id}"
@@ -618,11 +675,18 @@ async def _build_row_async(
         }
     exit_odd = float(exit_odd)
 
-    market_hit = bool(market["settle"](final_snapshot))
-    if market["side"] == "back":
-        profit, risk = _apply_back_profit(config.stake, odd_value, market_hit, config.commission)
+    if _should_cashout_at_snapshot(market, final_snapshot, config.final_minute):
+        if market["side"] == "back":
+            profit, risk = _cashout_back_profit(config.stake, odd_value, exit_odd, config.commission)
+        else:
+            profit, risk = _cashout_lay_profit(config.stake, odd_value, exit_odd, config.commission)
+        market_hit = None
     else:
-        profit, risk = _apply_lay_profit(config.stake, odd_value, market_hit, config.commission)
+        market_hit = bool(market["settle"](final_snapshot))
+        if market["side"] == "back":
+            profit, risk = _apply_back_profit(config.stake, odd_value, market_hit, config.commission)
+        else:
+            profit, risk = _apply_lay_profit(config.stake, odd_value, market_hit, config.commission)
 
     final_goals = _final_outcome_total_goals(final_snapshot)
     match_label = f"{pd.to_datetime(row.get('DataJogo'), errors='coerce').strftime('%Y-%m-%d') if pd.notna(pd.to_datetime(row.get('DataJogo'), errors='coerce')) else 'sem-data'} | {row.get('NomeCasa')} x {row.get('NomeVisitante')} | {game_id}"

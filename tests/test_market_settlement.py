@@ -23,7 +23,7 @@ class FakeClient:
 
 
 class MarketSettlementTests(unittest.TestCase):
-    def test_all_markets_use_settlement_logic_for_custom_final_minute(self) -> None:
+    def test_all_markets_keep_bet_win_aligned_with_profit(self) -> None:
         base_row = {
             "sport_event_id": "sr:match:dummy",
             "NomeCasa": "home",
@@ -43,18 +43,51 @@ class MarketSettlementTests(unittest.TestCase):
         for label, market in MARKET_OPTIONS.items():
             config = BacktestConfig(market_label=label, stake=100.0, commission=0.0, entry_minute=35, final_minute=80)
             result = _build_row(client, base_row, config, market)
-            selection_hit = bool(market["settle"](final_snapshot))
-            self.assertEqual(result["market_hit"], selection_hit, msg=label)
-            if market["side"] == "back":
-                expected_profit, _ = _apply_back_profit(config.stake, 2.0, selection_hit, config.commission)
-            else:
-                expected_profit, _ = _apply_lay_profit(config.stake, 2.0, selection_hit, config.commission)
-            self.assertAlmostEqual(result["profit"], expected_profit, places=7, msg=label)
             self.assertEqual(result["won"], result["profit"] >= 0, msg=label)
 
             summary = _finalize_backtest([base_row], [result], config)
             self.assertEqual(summary["metrics"]["wins"], int(result["won"]), msg=label)
             self.assertAlmostEqual(summary["metrics"]["win_rate"], 100.0 if result["won"] else 0.0, places=7, msg=label)
+
+    def test_lay_correct_score_uses_cashout_before_settlement(self) -> None:
+        base_row = {
+            "sport_event_id": "sr:match:dummy",
+            "NomeCasa": "home",
+            "NomeVisitante": "away",
+            "DataJogo": "2022-02-13T10:15:00Z",
+            "NivelDados": "Gold",
+            "query": "(m79.Minuto = 79)",
+        }
+        market = MARKET_OPTIONS["Lay Correct Score 0-3"]
+        entry_snapshot = {"Lay0x3FT": 80.0}
+        final_snapshot = {"Lay0x3FT": 4.0, "GolsCasa": 0, "GolsVisitante": 3}
+        client = FakeClient(entry_snapshot, final_snapshot)
+        config = BacktestConfig(market_label="Lay Correct Score 0-3", stake=100.0, commission=0.0, entry_minute=79, final_minute=79)
+
+        result = _build_row(client, base_row, config, market)
+        self.assertIsNone(result["market_hit"])
+        self.assertAlmostEqual(result["profit"], 100.0 / 79.0 * (1.0 - 80.0 / 4.0), places=7)
+        self.assertFalse(result["won"])
+
+    def test_back_under_25_uses_settlement_when_threshold_is_crossed(self) -> None:
+        base_row = {
+            "sport_event_id": "sr:match:dummy",
+            "NomeCasa": "home",
+            "NomeVisitante": "away",
+            "DataJogo": "2022-02-13T10:15:00Z",
+            "NivelDados": "Gold",
+            "query": "(m79.Minuto = 79)",
+        }
+        market = MARKET_OPTIONS["Back Under 2.5 FT"]
+        entry_snapshot = {"BackUnder25FT": 2.0}
+        final_snapshot = {"BackUnder25FT": 2.0, "GolsCasa": 3, "GolsVisitante": 1}
+        client = FakeClient(entry_snapshot, final_snapshot)
+        config = BacktestConfig(market_label="Back Under 2.5 FT", stake=100.0, commission=0.0, entry_minute=79, final_minute=79)
+
+        result = _build_row(client, base_row, config, market)
+        self.assertEqual(result["market_hit"], False)
+        self.assertAlmostEqual(result["profit"], -100.0, places=7)
+        self.assertFalse(result["won"])
 
 
 if __name__ == "__main__":
