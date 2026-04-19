@@ -348,11 +348,11 @@ MARKET_OPTIONS: dict[str, dict[str, Any]] = {
         "settle": _final_outcome_scoreline(0, 3),
         "description": "Back placar exato 0-3",
     },
-    "Lay Correct Score 0-3": {
+    "Lay Correct Score 0 x 3": {
         "odds_fields": ["LayCS03FT", "LayCorrectScore03FT", "LayScore03FT"],
         "side": "lay",
         "settle": _final_outcome_not_scoreline(0, 3),
-        "description": "Lay placar exato 0-3",
+        "description": "Lay placar exato 0 x 3",
     },
 }
 
