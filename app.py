@@ -861,6 +861,7 @@ def render_optimization_tab(
                                 "combo_key": f"{combo['base_query']}|{combo['final_filter']}|{combo['entry_minute']}|{combo['final_minute']}",
                                 "base_query": combo["base_query"],
                                 "final_filter": combo["final_filter"],
+                                "executed_train_query": full_train_query,
                                 "entry_minute": int(combo["entry_minute"]),
                                 "final_minute": int(combo["final_minute"]),
                                 "train_matches": metrics.get("matches", 0),
@@ -880,6 +881,7 @@ def render_optimization_tab(
                                 "combo_key": f"{combo['base_query']}|{combo['final_filter']}|{combo['entry_minute']}|{combo['final_minute']}",
                                 "base_query": combo["base_query"],
                                 "final_filter": combo["final_filter"],
+                                "executed_train_query": full_train_query,
                                 "entry_minute": int(combo["entry_minute"]),
                                 "final_minute": int(combo["final_minute"]),
                                 "train_matches": 0,
@@ -925,6 +927,7 @@ def render_optimization_tab(
                             validation_records.append(
                                 {
                                     "combo_key": record["combo_key"],
+                                    "executed_validation_query": full_validation_query,
                                     "validation_matches": metrics.get("matches", 0),
                                     "validation_bets": metrics.get("bets", 0),
                                     "validation_wins": metrics.get("wins", 0),
@@ -940,6 +943,7 @@ def render_optimization_tab(
                             validation_records.append(
                                 {
                                     "combo_key": record["combo_key"],
+                                    "executed_validation_query": full_validation_query,
                                     "validation_matches": 0,
                                     "validation_bets": 0,
                                     "validation_wins": 0,
@@ -1002,6 +1006,8 @@ def render_optimization_tab(
         "validation_drawdown",
         "base_query",
         "final_filter",
+        "executed_train_query",
+        "executed_validation_query",
     ]
     available_columns = [column for column in display_columns if column in ranking_df.columns]
     display_df = ranking_df[available_columns].copy()
@@ -1022,6 +1028,12 @@ def render_optimization_tab(
         f"{best_row.get('base_query', '')}\n\n{best_row.get('final_filter', '')}",
         language="text",
     )
+    with st.expander("Ver queries executadas"):
+        st.write("Treino")
+        st.code(str(best_row.get("executed_train_query") or ""), language="text")
+        if best_row.get("executed_validation_query"):
+            st.write("Validação")
+            st.code(str(best_row.get("executed_validation_query") or ""), language="text")
 
     csv_data = ranking_df.to_csv(index=False).encode("utf-8")
     json_data = json.dumps(
