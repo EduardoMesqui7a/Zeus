@@ -52,6 +52,24 @@ def sanitize_query_terms(query: str) -> tuple[str, list[str]]:
     return safe_query, stripped_terms
 
 
+def detect_market_from_query(query: str) -> str | None:
+    lowered = (query or "").lower()
+    matched: list[str] = []
+    for label, market in MARKET_OPTIONS.items():
+        for field in market.get("odds_fields") or []:
+            if re.search(rf"(?i)\b{re.escape(field)}\b", query or ""):
+                matched.append(label)
+                break
+    if not matched:
+        return None
+    if len(matched) == 1:
+        return matched[0]
+    for label in MARKET_OPTIONS.keys():
+        if label in matched:
+            return label
+    return matched[0]
+
+
 st.set_page_config(
     page_title="Zeus Backtester",
     page_icon="Z",
@@ -339,11 +357,11 @@ def load_backtest_report(
     final_minute: int,
 ) -> dict:
     sanitized_base, stripped_base = sanitize_query_terms(base_query)
-    sanitized_final, stripped_final = sanitize_query_terms(final_filter)
     full_query = sanitized_base
-    if sanitized_final.strip():
-        full_query = f"({sanitized_base}) and ({sanitized_final})" if sanitized_base else sanitized_final.strip()
-    stripped_terms = stripped_base + stripped_final
+    final_filter = (final_filter or "").strip()
+    if final_filter:
+        full_query = f"({sanitized_base}) and ({final_filter})" if sanitized_base else final_filter
+    stripped_terms = stripped_base
 
     async def _load() -> dict:
         async with AsyncZeusClient(auth_token=_token) as async_client:
@@ -517,8 +535,8 @@ def main() -> None:
             st.rerun()
 
         token = st.session_state.get("zeus_auth_token", "").strip()
-        query_base = st.text_area(
-            "Query base",
+        strategy_query = st.text_area(
+            "Strategy query",
             value=(
                 '(m500.Minuto = 500) and (m500.NivelDados = "Gold") and (m500.DataJogo >= "2022-01-01") '
                 'and (m20.Minuto = 20) and (m20.GolsTotal = 0) and (m20.CartaoVermelhoCasa = 0) '
@@ -530,13 +548,23 @@ def main() -> None:
             ),
             height=220,
         )
-        query_final = st.text_area(
-            "Filtro adicional seguro",
-            value="",
-            help="Use apenas termos que nao dependem do resultado final. O app remove automaticamente qualquer m500. que gere look-ahead.",
+        final_check = st.text_area(
+            "Final check",
+            value="(m500.GolsTotal <= 2)",
+            help="Regra de liquidacao. Use aqui a condicao final da estrategia.",
             height=90,
         )
-        market_label = st.selectbox("Mercado", list(MARKET_OPTIONS.keys()), index=0)
+        detected_market = detect_market_from_query(strategy_query)
+        if detected_market:
+            st.caption(f"Mercado detectado na strategy query: {detected_market}")
+        market_label = st.selectbox(
+            "Mercado manual",
+            list(MARKET_OPTIONS.keys()),
+            index=0,
+            disabled=bool(detected_market),
+            help="Usado apenas se a strategy query nao permitir detectar o mercado automaticamente.",
+        )
+        market_label = detected_market or market_label
         stake = st.number_input("Stake por entrada", min_value=1.0, value=100.0, step=10.0)
         commission = st.number_input("Comissao", min_value=0.0, max_value=0.2, value=0.08, step=0.01, format="%.2f")
         max_pages = st.number_input("Max pages Lucy", min_value=1, value=25, step=1)
@@ -549,8 +577,8 @@ def main() -> None:
         if not token.strip():
             st.error("Entre com email/senha acima ou informe um token opcional.")
             return
-        base_query = query_base.strip()
-        final_filter = query_final.strip()
+        base_query = strategy_query.strip()
+        final_filter = final_check.strip()
         try:
             full_query = base_query
             if final_filter:
@@ -586,8 +614,8 @@ def main() -> None:
         st.markdown(
             f"""
             <div class="note-box">
-                <strong>Query base:</strong> {base_query}<br/>
-                <strong>Filtro final:</strong> {final_filter or 'nenhum'}<br/>
+                <strong>Strategy query:</strong> {base_query}<br/>
+                <strong>Final check:</strong> {final_filter or 'nenhum'}<br/>
                 <strong>Query completa:</strong> {report['full_query']}<br/>
                 <strong>Minutos detectados:</strong> {', '.join(map(str, extract_minute_refs(report['full_query']))) or 'nenhum'}<br/>
                 <strong>Entry minute usado:</strong> {report['backtest']['config'].entry_minute}<br/>
@@ -603,7 +631,7 @@ def main() -> None:
 
         if report.get("stripped_terms"):
             st.warning(
-                "Removi termos com informação futura da consulta antes de pesquisar. "
+                "Removi termos com informacao futura da strategy query antes de pesquisar. "
                 "Isso evita look-ahead bias e explica por que o winrate não deve ser 100% só por causa do resultado final."
             )
 
