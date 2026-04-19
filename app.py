@@ -318,7 +318,7 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
             legend=dict(orientation="h"),
             yaxis_title="Resultado acumulado",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     with right:
         entry_odd = results_df["entry_odd"].dropna()
@@ -360,7 +360,7 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
                 yaxis2=dict(overlaying="y", side="right", title="Jogos por faixa"),
             )
         hist.update_layout(height=420, margin=dict(l=0, r=0, t=40, b=0), template="plotly_white")
-        st.plotly_chart(hist, use_container_width=True)
+        st.plotly_chart(hist, width="stretch")
 
     with st.container():
         period_choice = st.selectbox(
@@ -412,11 +412,11 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
                 yaxis_title="Lucro / acumulado",
             )
             st.subheader(f"Profit por {period_label.lower()}")
-            st.plotly_chart(fig_blocks, use_container_width=True)
+            st.plotly_chart(fig_blocks, width="stretch")
             grouped = grouped.rename(columns={"match_datetime": period_label}).copy()
             if "profit" in grouped.columns:
                 grouped["profit"] = grouped["profit"].map(format_brl)
-            st.dataframe(grouped, use_container_width=True, hide_index=True)
+            st.dataframe(grouped, width="stretch", hide_index=True)
 
 
 def render_game_timeline(client: ZeusClient, game_id: str, market_field: str) -> None:
@@ -459,8 +459,8 @@ def render_game_timeline(client: ZeusClient, game_id: str, market_field: str) ->
         yaxis_title="Odd",
         legend=dict(orientation="h"),
     )
-    st.plotly_chart(fig, use_container_width=True)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.plotly_chart(fig, width="stretch")
+    st.dataframe(df, width="stretch", hide_index=True)
 
 
 def render_timeline_frame(timeline: list[dict[str, object]], market_field: str) -> None:
@@ -502,8 +502,8 @@ def render_timeline_frame(timeline: list[dict[str, object]], market_field: str) 
         yaxis_title="Odd",
         legend=dict(orientation="h"),
     )
-    st.plotly_chart(fig, use_container_width=True)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.plotly_chart(fig, width="stretch")
+    st.dataframe(df, width="stretch", hide_index=True)
 
 
 def render_report_view(report: dict, token: str, market_label: str, base_query: str, final_filter: str) -> None:
@@ -513,7 +513,7 @@ def render_report_view(report: dict, token: str, market_label: str, base_query: 
 
     st.subheader("Resultados")
     display_df = build_results_display_df(report["backtest"]["result_df"])
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width="stretch", hide_index=True)
 
     csv = report["backtest"]["result_df"].to_csv(index=False).encode("utf-8")
     st.download_button(
@@ -541,7 +541,7 @@ def render_report_view(report: dict, token: str, market_label: str, base_query: 
         selected = selected_rows.iloc[0]
         st.write(f"{selected['display_label']} | entrada {selected['entry_minute']} | odd {selected['entry_odd']:.2f}")
         st.caption(f"Campo odd usado: {selected.get('odds_field_used') or selected.get('odds_field') or 'n/a'}")
-        load_detail = st.button("Carregar detalhe do jogo", use_container_width=True, key="zeus_load_detail")
+        load_detail = st.button("Carregar detalhe do jogo", width="stretch", key="zeus_load_detail")
         cache_hit = (
             st.session_state.get("zeus_detail_game_id") == str(selected["sport_event_id"])
             and st.session_state.get("zeus_detail_market_field") == str(selected["odds_field"])
@@ -855,7 +855,7 @@ def render_optimization_tab(
             else:
                 st.info("Nenhum filtro extra selecionado. A otimiza??o vai usar apenas a consulta e os minutos.")
 
-        submit = st.form_submit_button("Rodar otimiza??o", use_container_width=True, type="primary")
+        submit = st.form_submit_button("Rodar otimiza??o", width="stretch", type="primary")
 
     if submit:
         if not token.strip():
@@ -1094,7 +1094,7 @@ def render_optimization_tab(
     ]
     available_columns = [column for column in display_columns if column in ranking_df.columns]
     display_df = ranking_df[available_columns].copy()
-    st.dataframe(display_df.head(50), use_container_width=True, hide_index=True)
+    st.dataframe(display_df.head(50), width="stretch", hide_index=True)
 
     best_row = ranking_df.iloc[0].to_dict()
     st.subheader("Melhor combina??o")
@@ -1232,7 +1232,7 @@ def main() -> None:
                 help="Normalmente o backend aceita este valor interno.",
             )
             remember_session = st.checkbox("Salvar sessão neste computador", value=True)
-            login_pressed = st.button("Entrar e salvar sessão", use_container_width=True)
+            login_pressed = st.button("Entrar e salvar sessão", width="stretch")
             if login_pressed:
                 if not login_email.strip() or not login_password:
                     st.error("Informe email e senha.")
@@ -1260,7 +1260,7 @@ def main() -> None:
                         st.success("Sessão obtida com sucesso.")
                         st.rerun()
 
-        if st.session_state.get("zeus_login_status") == "conectado" and st.button("Sair e apagar sessão", use_container_width=True):
+        if st.session_state.get("zeus_login_status") == "conectado" and st.button("Sair e apagar sessão", width="stretch"):
             st.session_state["zeus_auth_token"] = ""
             st.session_state["zeus_login_status"] = "desconectado"
             st.session_state["zeus_profile"] = {}
@@ -1325,7 +1325,7 @@ def main() -> None:
                 final_minute_default = int(final_override)
             except ValueError:
                 final_minute_override_error = "Os minutos precisam ser números inteiros."
-        run = st.button("Consultar Zeus / Lucy", type="primary", use_container_width=True)
+        run = st.button("Consultar Zeus / Lucy", type="primary", width="stretch")
 
     if run:
         if not token.strip():
@@ -1387,7 +1387,7 @@ def main() -> None:
 
         st.subheader("Resultados")
         display_df = build_results_display_df(report["backtest"]["result_df"])
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        st.dataframe(display_df, width="stretch", hide_index=True)
 
         csv = report["backtest"]["result_df"].to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -1413,7 +1413,7 @@ def main() -> None:
             selected = selected_rows.iloc[0]
             st.write(f"{selected['display_label']} | entrada {selected['entry_minute']} | odd {selected['entry_odd']:.2f}")
             st.caption(f"Campo odd usado: {selected.get('odds_field_used') or selected.get('odds_field') or 'n/a'}")
-            load_detail = st.button("Carregar detalhe do jogo", use_container_width=True)
+            load_detail = st.button("Carregar detalhe do jogo", width="stretch")
             cache_hit = (
                 st.session_state.get("zeus_detail_game_id") == str(selected["sport_event_id"])
                 and st.session_state.get("zeus_detail_market_field") == str(selected["odds_field"])

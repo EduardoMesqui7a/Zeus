@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable
@@ -398,13 +397,20 @@ MARKET_OPTIONS: dict[str, dict[str, Any]] = {
 }
 
 
-@dataclass(frozen=True)
 class BacktestConfig:
-    market_label: str
-    stake: float = 100.0
-    commission: float = 0.08
-    entry_minute: int | None = None
-    final_minute: int = 500
+    def __init__(
+        self,
+        market_label: str,
+        stake: float = 100.0,
+        commission: float = 0.08,
+        entry_minute: int | None = None,
+        final_minute: int = 500,
+    ) -> None:
+        self.market_label = market_label
+        self.stake = stake
+        self.commission = commission
+        self.entry_minute = entry_minute
+        self.final_minute = final_minute
 
 
 def _apply_back_profit(stake: float, odd: float, won: bool, commission: float) -> tuple[float, float]:
