@@ -1258,8 +1258,8 @@ def main() -> None:
             commission_decimal=commission_decimal,
             max_pages=int(max_pages),
             max_games=int(max_games),
-            entry_minute_default=int(entry_minute),
-            final_minute_default=int(final_minute),
+            entry_minute_default=int(entry_minute_default),
+            final_minute_default=int(final_minute_default),
         )
 
     return
