@@ -539,6 +539,7 @@ def _finalize_backtest(
             "total_risked": 0.0,
             "max_drawdown": 0.0,
             "worst_trade": 0.0,
+            "worst_curve": 0.0,
             "avg_entry_odd": 0.0,
         }
         return {"metrics": metrics, "result_df": result_df, "config": config}
@@ -563,6 +564,7 @@ def _finalize_backtest(
         "total_risked": total_risked,
         "max_drawdown": float(result_df["drawdown"].min()) if not result_df.empty else 0.0,
         "worst_trade": float(result_df["profit"].min()) if not result_df.empty else 0.0,
+        "worst_curve": float(result_df["cumulative_profit"].min()) if not result_df.empty else 0.0,
         "avg_entry_odd": float(result_df["entry_odd"].mean()) if not result_df.empty else 0.0,
     }
     return {"metrics": metrics, "result_df": result_df, "config": config}

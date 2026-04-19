@@ -199,7 +199,7 @@ def render_metrics(metrics: dict) -> None:
     items = [
         ("Lucro", f"{format_brl(total_profit)}", profit_class),
         ("Stake", f"{format_brl(float(metrics.get('total_risked', 0)))}"),
-        ("Maior perda", f"{format_brl(float(metrics.get('worst_trade', 0)))}"),
+        ("Maior perda", f"{format_brl(float(metrics.get('worst_curve', metrics.get('worst_trade', 0))))}"),
         ("Odd média", f"{metrics.get('avg_entry_odd', 0):.2f}"),
     ]
     for col, item in zip(cols, items, strict=False):
@@ -279,14 +279,14 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
         return
 
     period_config = {
-        "Mensal": ("MS", "Mes"),
+        "Mensal": ("MS", "Mês"),
         "Trimestral": ("QS", "Trimestre"),
         "Semestral": ("6MS", "Semestre"),
         "Anual": ("YS", "Ano"),
     }
     freq, period_label = period_config.get(block_period, period_config["Mensal"])
 
-    st.subheader("Curva e distribuicao")
+    st.subheader("Profit Acumulado")
     left, right = st.columns((1.4, 1))
 
     with left:
@@ -316,7 +316,7 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
             results_df,
             x="entry_odd",
             nbins=bins,
-            title="Distribuicao da odd de entrada",
+            title="Faixa de Odd x Jogos",
         )
         counts, edges = pd.cut(entry_odd, bins=bins, retbins=True, include_lowest=True, duplicates="drop")
         if len(counts):
@@ -346,7 +346,7 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
             if block_period in {"Mensal", "Trimestral", "Semestral", "Anual"}
             else 0,
             key="zeus_profit_period",
-            help="Escolha como agrupar o lucro: por mes, trimestre, semestre ou ano.",
+            help="Escolha como agrupar o lucro: por mês, trimestre, semestre ou ano.",
         )
         freq, period_label = period_config.get(period_choice, period_config["Mensal"])
 
@@ -376,7 +376,6 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
                     mode="lines+markers",
                     name="Acumulado por bloco",
                     line=dict(color="#1d4ed8", width=2),
-                    yaxis="y2",
                 )
             )
             fig_blocks.update_layout(
@@ -386,8 +385,7 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
                 barmode="relative",
                 legend=dict(orientation="h"),
                 xaxis_title=period_label,
-                yaxis_title="Lucro no bloco",
-                yaxis2=dict(overlaying="y", side="right", title="Acumulado"),
+                yaxis_title="Lucro / acumulado",
             )
             st.subheader(f"Profit por {period_label.lower()}")
             st.plotly_chart(fig_blocks, use_container_width=True)
@@ -398,7 +396,7 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
 def render_game_timeline(client: ZeusClient, game_id: str, market_field: str) -> None:
     timeline = client.fetch_timeline(game_id, market_field=market_field)
     if not timeline:
-        st.info("N?o foi poss?vel montar a linha do tempo deste jogo.")
+        st.info("Não foi possível montar a linha do tempo deste jogo.")
         return
 
     df = pd.DataFrame(timeline)
@@ -441,7 +439,7 @@ def render_game_timeline(client: ZeusClient, game_id: str, market_field: str) ->
 
 def render_timeline_frame(timeline: list[dict[str, object]], market_field: str) -> None:
     if not timeline:
-        st.info("N?o foi poss?vel montar a linha do tempo deste jogo.")
+        st.info("Não foi possível montar a linha do tempo deste jogo.")
         return
 
     df = pd.DataFrame(timeline)
@@ -512,7 +510,7 @@ def render_report_view(report: dict, token: str, market_label: str, base_query: 
         )
         selected_rows = report["backtest"]["result_df"].loc[report["backtest"]["result_df"]["display_label"].eq(selected_label)]
         if selected_rows.empty:
-            st.warning("N?o foi poss?vel localizar o jogo selecionado.")
+            st.warning("Não foi possível localizar o jogo selecionado.")
             return
         selected = selected_rows.iloc[0]
         st.write(f"{selected['display_label']} | entrada {selected['entry_minute']} | odd {selected['entry_odd']:.2f}")
@@ -634,6 +632,8 @@ def main() -> None:
     st.session_state.setdefault("zeus_login_status", "desconectado")
     st.session_state.setdefault("zeus_profile", {})
     st.session_state.setdefault("zeus_checked_session", False)
+    commission_pct = 6.5
+    commission_decimal = commission_pct / 100.0
     st.markdown(
         """
         <div class="hero">
@@ -779,7 +779,7 @@ def main() -> None:
         )
         detected_market = detect_market_from_query(strategy_query)
         if detected_market:
-            st.caption(f"Mercado detectado na consulta da estrat?gia: {detected_market}")
+            st.caption(f"Mercado detectado na consulta da estratégia: {detected_market}")
         market_options = list(MARKET_OPTIONS.keys())
         default_market_index = market_options.index(detected_market) if detected_market in market_options else 0
         market_label = st.selectbox(
@@ -789,7 +789,8 @@ def main() -> None:
             help="Escolha o mercado que será usado no backtest. A consulta da estratégia pode sugerir um valor, mas você pode alterar.",
         )
         stake = st.number_input("Stake por entrada", min_value=1.0, value=100.0, step=10.0)
-        commission = st.number_input("Comissão", min_value=0.0, max_value=0.2, value=0.08, step=0.01, format="%.2f")
+        commission_pct = st.number_input("Comissão (%)", min_value=0.0, max_value=20.0, value=6.5, step=0.5, format="%.1f")
+        commission_decimal = float(commission_pct) / 100.0
         max_pages = st.number_input("Máximo de páginas na Lucy", min_value=1, value=200, step=1)
         max_games = st.number_input("Máximo de jogos", min_value=1, value=1000, step=10)
         entry_override = st.text_input("Minuto de entrada", value="", help="Opcional. Ex.: 20, 89 ou 500.")
@@ -797,7 +798,7 @@ def main() -> None:
             "Minuto de saída",
             value="",
             placeholder="500",
-            help="Opcional. Deixe vazio para usar o padr?o t?cnico do app.",
+            help="Opcional. Deixe vazio para usar o padrão técnico do app.",
         )
         run = st.button("Consultar Zeus / Lucy", type="primary", use_container_width=True)
 
@@ -810,7 +811,7 @@ def main() -> None:
         try:
             sanitized_base, _ = sanitize_query_terms(base_query)
             if not sanitized_base:
-                st.error("A consulta da estrat?gia ficou vazia depois da limpeza. Ajuste os termos e tente novamente.")
+                st.error("A consulta da estratégia ficou vazia depois da limpeza. Ajuste os termos e tente novamente.")
                 return
             full_query = base_query
             sanitized_final, _ = sanitize_query_terms(final_filter)
@@ -818,7 +819,7 @@ def main() -> None:
             entry_minute = int(entry_override) if entry_override.strip() else infer_entry_minute(full_query)
             final_minute = int(final_override) if final_override.strip() else infer_final_minute(final_filter)
         except ValueError:
-            st.error("Os minutos precisam ser numeros inteiros.")
+            st.error("Os minutos precisam ser números inteiros.")
             return
 
         with st.spinner("Consultando Zeus e Lucy..."):
@@ -830,7 +831,7 @@ def main() -> None:
                     final_filter,
                     market_label,
                     float(stake),
-                    float(commission_pct) / 100.0,
+                    commission_decimal,
                     int(max_pages),
                     int(max_games),
                     entry_minute,
@@ -879,7 +880,7 @@ def main() -> None:
             )
             selected_rows = report["backtest"]["result_df"].loc[report["backtest"]["result_df"]["display_label"].eq(selected_label)]
             if selected_rows.empty:
-                st.warning("N?o foi poss?vel localizar o jogo selecionado.")
+                st.warning("Não foi possível localizar o jogo selecionado.")
                 return
             selected = selected_rows.iloc[0]
             st.write(f"{selected['display_label']} | entrada {selected['entry_minute']} | odd {selected['entry_odd']:.2f}")
@@ -919,7 +920,7 @@ def main() -> None:
             base_query=str(last_inputs.get("base_query", "")),
             final_filter=str(last_inputs.get("final_filter", "")),
         )
-        st.caption("Consulta conclu?da com os endpoints internos do Zeus/Lucy.")
+        st.caption("Consulta concluída com os endpoints internos do Zeus/Lucy.")
 
 
 if __name__ == "__main__":
