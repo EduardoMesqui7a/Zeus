@@ -20,6 +20,7 @@ from src.backtest import (
 from src.query_parser import (
     extract_minute_refs,
     infer_entry_minute,
+    infer_final_minute,
 )
 from src.session_store import clear_saved_session, load_saved_session, save_token
 from src.zeus_client import AsyncZeusClient, ZeusClient, ZeusClientError
@@ -599,7 +600,7 @@ def main() -> None:
             sanitized_final, _ = sanitize_query_terms(final_filter)
             full_query = sanitized_base
             entry_minute = int(entry_override) if entry_override.strip() else infer_entry_minute(full_query)
-            final_minute = int(final_override) if final_override.strip() else 500
+            final_minute = int(final_override) if final_override.strip() else infer_final_minute(final_filter)
         except ValueError:
             st.error("Os minutos precisam ser numeros inteiros.")
             return

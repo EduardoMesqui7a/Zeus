@@ -31,6 +31,17 @@ def infer_entry_minute(query: str) -> int:
     return 500
 
 
+def infer_final_minute(query: str) -> int:
+    refs = extract_minute_refs(query)
+    if not refs:
+        return 500
+
+    non_final = [minute for minute in refs if minute != 500]
+    if non_final:
+        return max(non_final)
+    return 500
+
+
 def absolute_to_period_minute(minute: int) -> tuple[int, int]:
     if minute <= 0:
         return 1, 1
