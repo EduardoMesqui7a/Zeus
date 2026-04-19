@@ -72,15 +72,6 @@ def _final_outcome_scoreline(home_goals: int, away_goals: int) -> Callable[[dict
     return _checker
 
 
-def _final_outcome_not_scoreline(home_goals: int, away_goals: int) -> Callable[[dict[str, Any]], bool]:
-    scoreline = _final_outcome_scoreline(home_goals, away_goals)
-
-    def _checker(snapshot: dict[str, Any]) -> bool:
-        return not scoreline(snapshot)
-
-    return _checker
-
-
 def _final_outcome_any_other_home_win(snapshot: dict[str, Any]) -> bool:
     home_goals = int(snapshot.get("GolsCasa") or 0)
     away_goals = int(snapshot.get("GolsVisitante") or 0)
@@ -283,76 +274,76 @@ MARKET_OPTIONS: dict[str, dict[str, Any]] = {
         "description": "Lay goleada fora FT",
     },
     "Back Correct Score 0-0": {
-        "odds_fields": ["BackCS00FT", "BackCorrectScore00FT", "BackScore00FT"],
+        "odds_fields": ["Back0x0FT", "BackCS00FT", "BackCorrectScore00FT", "BackScore00FT"],
         "side": "back",
         "settle": _final_outcome_scoreline(0, 0),
         "description": "Back placar exato 0-0",
     },
     "Back Correct Score 1-0": {
-        "odds_fields": ["BackCS10FT", "BackCorrectScore10FT", "BackScore10FT"],
+        "odds_fields": ["Back1x0FT", "BackCS10FT", "BackCorrectScore10FT", "BackScore10FT"],
         "side": "back",
         "settle": _final_outcome_scoreline(1, 0),
         "description": "Back placar exato 1-0",
     },
     "Back Correct Score 0-1": {
-        "odds_fields": ["BackCS01FT", "BackCorrectScore01FT", "BackScore01FT"],
+        "odds_fields": ["Back0x1FT", "BackCS01FT", "BackCorrectScore01FT", "BackScore01FT"],
         "side": "back",
         "settle": _final_outcome_scoreline(0, 1),
         "description": "Back placar exato 0-1",
     },
     "Back Correct Score 1-1": {
-        "odds_fields": ["BackCS11FT", "BackCorrectScore11FT", "BackScore11FT"],
+        "odds_fields": ["Back1x1FT", "BackCS11FT", "BackCorrectScore11FT", "BackScore11FT"],
         "side": "back",
         "settle": _final_outcome_scoreline(1, 1),
         "description": "Back placar exato 1-1",
     },
     "Back Correct Score 2-0": {
-        "odds_fields": ["BackCS20FT", "BackCorrectScore20FT", "BackScore20FT"],
+        "odds_fields": ["Back2x0FT", "BackCS20FT", "BackCorrectScore20FT", "BackScore20FT"],
         "side": "back",
         "settle": _final_outcome_scoreline(2, 0),
         "description": "Back placar exato 2-0",
     },
     "Back Correct Score 0-2": {
-        "odds_fields": ["BackCS02FT", "BackCorrectScore02FT", "BackScore02FT"],
+        "odds_fields": ["Back0x2FT", "BackCS02FT", "BackCorrectScore02FT", "BackScore02FT"],
         "side": "back",
         "settle": _final_outcome_scoreline(0, 2),
         "description": "Back placar exato 0-2",
     },
     "Back Correct Score 2-1": {
-        "odds_fields": ["BackCS21FT", "BackCorrectScore21FT", "BackScore21FT"],
+        "odds_fields": ["Back2x1FT", "BackCS21FT", "BackCorrectScore21FT", "BackScore21FT"],
         "side": "back",
         "settle": _final_outcome_scoreline(2, 1),
         "description": "Back placar exato 2-1",
     },
     "Back Correct Score 1-2": {
-        "odds_fields": ["BackCS12FT", "BackCorrectScore12FT", "BackScore12FT"],
+        "odds_fields": ["Back1x2FT", "BackCS12FT", "BackCorrectScore12FT", "BackScore12FT"],
         "side": "back",
         "settle": _final_outcome_scoreline(1, 2),
         "description": "Back placar exato 1-2",
     },
     "Back Correct Score 2-2": {
-        "odds_fields": ["BackCS22FT", "BackCorrectScore22FT", "BackScore22FT"],
+        "odds_fields": ["Back2x2FT", "BackCS22FT", "BackCorrectScore22FT", "BackScore22FT"],
         "side": "back",
         "settle": _final_outcome_scoreline(2, 2),
         "description": "Back placar exato 2-2",
     },
     "Back Correct Score 3-0": {
-        "odds_fields": ["BackCS30FT", "BackCorrectScore30FT", "BackScore30FT"],
+        "odds_fields": ["Back3x0FT", "BackCS30FT", "BackCorrectScore30FT", "BackScore30FT"],
         "side": "back",
         "settle": _final_outcome_scoreline(3, 0),
         "description": "Back placar exato 3-0",
     },
     "Back Correct Score 0-3": {
-        "odds_fields": ["BackCS03FT", "BackCorrectScore03FT", "BackScore03FT"],
+        "odds_fields": ["Back0x3FT", "BackCS03FT", "BackCorrectScore03FT", "BackScore03FT"],
         "side": "back",
         "settle": _final_outcome_scoreline(0, 3),
         "description": "Back placar exato 0-3",
     },
-    "Lay Correct Score 0 x 3": {
-        "odds_fields": ["LayCS03FT", "LayCorrectScore03FT", "LayScore03FT"],
+    "Lay Correct Score 0-3": {
+        "odds_fields": ["Lay0x3FT", "LayCS03FT", "LayCorrectScore03FT", "LayScore03FT"],
         "side": "lay",
-        "settle": _final_outcome_not_scoreline(0, 3),
-        "description": "Lay placar exato 0 x 3",
+        "settle": _final_outcome_scoreline(0, 3),
+        "description": "Lay placar exato 0-3",
     },
 }
 
