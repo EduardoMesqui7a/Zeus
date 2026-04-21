@@ -8,6 +8,7 @@ from typing import Any
 
 MINUTE_PATTERN = re.compile(r"(?i)\bm(\d{1,3}|500)\.")
 PERIOD_PATTERN = re.compile(r"(?i)\bPeriodo\s*=\s*([12])\b")
+PERIOD_ASSIGNMENT_PATTERN = re.compile(r"(?i)\b(Periodo\s*=\s*)([12])\b")
 
 
 @dataclass(frozen=True)
@@ -74,7 +75,16 @@ def rewrite_query_minute_refs(query: str, source_minute: int | None, target_minu
         return query.strip()
 
     pattern = re.compile(rf"(?i)\bm{source_text}\.")
-    return pattern.sub(f"m{target_text}.", query.strip())
+    rewritten = pattern.sub(f"m{target_text}.", query.strip())
+    minute_literal_pattern = re.compile(rf"(?i)(\bMinuto\s*=\s*){source_text}\b")
+    return minute_literal_pattern.sub(rf"\g<1>{target_text}", rewritten)
+
+
+def rewrite_query_period_refs(query: str, target_period: int) -> str:
+    if not query:
+        return ""
+    period_text = "1" if int(target_period) <= 1 else "2"
+    return PERIOD_ASSIGNMENT_PATTERN.sub(rf"\g<1>{period_text}", query.strip())
 
 
 def strip_minute_prefixes(query: str) -> str:

@@ -6,6 +6,7 @@ from src.query_parser import (
     infer_final_minute,
     period_minute_to_absolute,
     rewrite_query_minute_refs,
+    rewrite_query_period_refs,
 )
 
 
@@ -27,6 +28,12 @@ class QueryParserTests(unittest.TestCase):
         rewritten = rewrite_query_minute_refs(query, 25, 30)
         self.assertIn("m30.GolsTotal", rewritten)
         self.assertIn("m500.DataJogo", rewritten)
+
+    def test_rewrite_query_period_refs_updates_period(self) -> None:
+        query = "(m45.Periodo = 2) and (m45.GolsTotal = 0)"
+        rewritten = rewrite_query_period_refs(query, 1)
+        self.assertIn("Periodo = 1", rewritten)
+        self.assertNotIn("Periodo = 2", rewritten)
 
     def test_evaluate_snapshot_query_supports_arithmetic_and_between(self) -> None:
         snapshot = {

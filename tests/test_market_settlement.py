@@ -187,7 +187,7 @@ class MarketSettlementTests(unittest.TestCase):
         entry_snapshot = {"BackUnder05HT": 2.0}
         final_snapshot = {
             "BackUnder05HT": 1.5,
-            "Periodo": 2,
+            "Periodo": 1,
             "GolsTotal": 0,
             "GolsCasa": 0,
             "GolsVisitante": 0,
@@ -199,11 +199,11 @@ class MarketSettlementTests(unittest.TestCase):
             commission=0.0,
             entry_minute=30,
             final_minute=44,
-            final_filter="(m44.Periodo = 2) and (m44.GolsTotal = 0)",
+            final_filter="(m44.Periodo = 1) and (m44.GolsTotal = 0)",
         )
 
         result = _build_row(client, base_row, config, market)
-        self.assertEqual(client.snapshot_calls[-2:], [("sr:match:dummy", 44, 2), ("sr:match:dummy", 45, 2)])
+        self.assertEqual(client.snapshot_calls[-2:], [("sr:match:dummy", 44, 1), ("sr:match:dummy", 45, 1)])
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["won"])
 
@@ -221,7 +221,7 @@ class MarketSettlementTests(unittest.TestCase):
         final_snapshot = {
             "Minuto": 40,
             "BackUnder05HT": 1.02,
-            "Periodo": 2,
+            "Periodo": 1,
             "GolsTotal": 0,
             "GolsCasa": 0,
             "GolsVisitante": 0,
@@ -233,7 +233,7 @@ class MarketSettlementTests(unittest.TestCase):
             commission=0.0,
             entry_minute=30,
             final_minute=40,
-            final_filter="(m40.Minuto = 40) and (m40.Periodo = 2) and (m40.GolsTotal = 0)",
+            final_filter="(m40.Minuto = 40) and (m40.Periodo = 1) and (m40.GolsTotal = 0)",
         )
 
         result = _build_row(client, base_row, config, market)
@@ -256,7 +256,7 @@ class MarketSettlementTests(unittest.TestCase):
         final_snapshot = {
             "Minuto": 40,
             "BackUnder05HT": 1.02,
-            "Periodo": 2,
+            "Periodo": 1,
             "GolsTotal": 1,
             "GolsCasa": 1,
             "GolsVisitante": 0,
@@ -268,7 +268,7 @@ class MarketSettlementTests(unittest.TestCase):
             commission=0.0,
             entry_minute=30,
             final_minute=40,
-            final_filter="(m40.Minuto = 40) and (m40.Periodo = 2)",
+            final_filter="(m40.Minuto = 40) and (m40.Periodo = 1)",
         )
 
         result = _build_row(client, base_row, config, market)

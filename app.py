@@ -26,7 +26,9 @@ from src.query_parser import (
     extract_minute_refs,
     infer_entry_minute,
     infer_final_minute,
+    infer_snapshot_period,
     rewrite_query_minute_refs,
+    rewrite_query_period_refs,
 )
 from src.session_store import clear_saved_session, load_saved_session, save_token
 from src.zeus_client import AsyncZeusClient, ZeusClient, ZeusClientError
@@ -672,7 +674,9 @@ def load_backtest_report(
     entry_query_source = infer_entry_minute(base_query)
     executed_base_query = rewrite_query_minute_refs(base_query, entry_query_source, entry_minute)
     sanitized_base, stripped_base = sanitize_query_terms(executed_base_query)
+    final_target_period = infer_snapshot_period("", final_minute)
     executed_final_filter = rewrite_query_minute_refs(final_filter or "", infer_final_minute(final_filter or ""), final_minute)
+    executed_final_filter = rewrite_query_period_refs(executed_final_filter, final_target_period)
     async def _load() -> dict:
         async with AsyncZeusClient(auth_token=_token) as async_client:
             base_count_task = async_client.count(sanitized_base) if sanitized_base else asyncio.sleep(0, result={"count": 0})
@@ -868,10 +872,13 @@ def render_optimization_tab(
                                 commission=float(commission_value),
                                 entry_minute=int(combo["entry_minute"]),
                                 final_minute=int(combo["final_minute"]),
-                                final_filter=rewrite_query_minute_refs(
-                                    verification_filter_value,
-                                    infer_final_minute(verification_filter_value),
-                                    int(combo["final_minute"]),
+                                final_filter=rewrite_query_period_refs(
+                                    rewrite_query_minute_refs(
+                                        verification_filter_value,
+                                        infer_final_minute(verification_filter_value),
+                                        int(combo["final_minute"]),
+                                    ),
+                                    infer_snapshot_period("", int(combo["final_minute"])),
                                 ),
                             ),
                         )
