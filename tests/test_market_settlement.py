@@ -142,7 +142,7 @@ class MarketSettlementTests(unittest.TestCase):
         self.assertEqual(summary["metrics"]["bets"], 0)
         self.assertEqual(summary["metrics"]["wins"], 0)
 
-    def test_final_filter_period_two_uses_second_half_snapshot(self) -> None:
+    def test_final_filter_period_two_uses_explicit_second_half_minute(self) -> None:
         base_row = {
             "sport_event_id": "sr:match:dummy",
             "NomeCasa": "home",
@@ -166,12 +166,12 @@ class MarketSettlementTests(unittest.TestCase):
             stake=100.0,
             commission=0.0,
             entry_minute=30,
-            final_minute=45,
-            final_filter="(m45.Periodo = 2) and (m45.GolsTotal = 0)",
+            final_minute=44,
+            final_filter="(m44.Periodo = 2) and (m44.GolsTotal = 0)",
         )
 
         result = _build_row(client, base_row, config, market)
-        self.assertEqual(client.snapshot_calls[-1], ("sr:match:dummy", 45, 2))
+        self.assertEqual(client.snapshot_calls[-1], ("sr:match:dummy", 44, 2))
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["won"])
 
