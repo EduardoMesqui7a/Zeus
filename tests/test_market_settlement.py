@@ -102,6 +102,34 @@ class MarketSettlementTests(unittest.TestCase):
         self.assertAlmostEqual(result["profit"], -100.0, places=7)
         self.assertFalse(result["won"])
 
+    def test_final_filter_excludes_row_before_market_settlement(self) -> None:
+        base_row = {
+            "sport_event_id": "sr:match:dummy",
+            "NomeCasa": "home",
+            "NomeVisitante": "away",
+            "DataJogo": "2022-02-13T10:15:00Z",
+            "NivelDados": "Gold",
+            "query": "(m79.Minuto = 79)",
+        }
+        market = MARKET_OPTIONS["Back Under 2.5 FT"]
+        entry_snapshot = {"BackUnder25FT": 2.0}
+        final_snapshot = {"BackUnder25FT": 2.0, "GolsCasa": 3, "GolsVisitante": 1}
+        client = FakeClient(entry_snapshot, final_snapshot)
+        config = BacktestConfig(
+            market_label="Back Under 2.5 FT",
+            stake=100.0,
+            commission=0.0,
+            entry_minute=79,
+            final_minute=79,
+            final_filter="GolsCasa <= 1",
+        )
+
+        result = _build_row(client, base_row, config, market)
+        self.assertEqual(result["status"], "fora da verificacao final")
+        summary = _finalize_backtest([base_row], [result], config)
+        self.assertEqual(summary["metrics"]["bets"], 0)
+        self.assertEqual(summary["metrics"]["wins"], 0)
+
     def test_async_backtest_matches_sync_backtest_for_all_markets(self) -> None:
         base_row = {
             "sport_event_id": "sr:match:dummy",

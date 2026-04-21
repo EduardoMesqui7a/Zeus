@@ -8,7 +8,7 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 
-from src.query_parser import absolute_to_period_minute, infer_entry_minute
+from src.query_parser import absolute_to_period_minute, evaluate_snapshot_query, infer_entry_minute
 from src.zeus_client import AsyncZeusClient, ZeusClient, ZeusClientError
 
 
@@ -405,12 +405,14 @@ class BacktestConfig:
         commission: float = 0.08,
         entry_minute: int | None = None,
         final_minute: int = 500,
+        final_filter: str = "",
     ) -> None:
         self.market_label = market_label
         self.stake = stake
         self.commission = commission
         self.entry_minute = entry_minute
         self.final_minute = final_minute
+        self.final_filter = final_filter or ""
 
 
 def _apply_back_profit(stake: float, odd: float, won: bool, commission: float) -> tuple[float, float]:
@@ -478,6 +480,18 @@ def _build_row(
     if settlement_minute == 500:
         settlement_minute = market_settle_minute
     final_snapshot = client.fetch_final_snapshot(game_id, final_minute=settlement_minute)
+
+    if config.final_filter and not evaluate_snapshot_query(config.final_filter, final_snapshot):
+        return {
+            "sport_event_id": game_id,
+            "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
+            "match_datetime": _normalize_datetime(row.get("DataJogo")),
+            "league": row.get("NivelDados") or row.get("campeonato") or "",
+            "home_team": row.get("NomeCasa") or row.get("mandante") or "",
+            "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
+            "odds_fields": market.get("odds_fields") or [],
+            "status": "fora da verificacao final",
+        }
 
     odd_fields = list(market.get("odds_fields") or [])
     odd_field = odd_fields[0] if odd_fields else market.get("odds_field")
@@ -652,6 +666,18 @@ async def _build_row_async(
         settlement_minute = market_settle_minute
     final_task = client.fetch_final_snapshot(game_id, final_minute=settlement_minute)
     entry_snapshot, final_snapshot = await asyncio.gather(entry_task, final_task)
+
+    if config.final_filter and not evaluate_snapshot_query(config.final_filter, final_snapshot):
+        return {
+            "sport_event_id": game_id,
+            "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
+            "match_datetime": _normalize_datetime(row.get("DataJogo")),
+            "league": row.get("NivelDados") or row.get("campeonato") or "",
+            "home_team": row.get("NomeCasa") or row.get("mandante") or "",
+            "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
+            "odds_fields": market.get("odds_fields") or [],
+            "status": "fora da verificacao final",
+        }
 
     odd_fields = list(market.get("odds_fields") or [])
     odd_field = odd_fields[0] if odd_fields else market.get("odds_field")

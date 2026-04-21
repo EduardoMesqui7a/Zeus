@@ -25,6 +25,8 @@ from src.optimization import (
 from src.query_parser import (
     extract_minute_refs,
     infer_entry_minute,
+    infer_final_minute,
+    rewrite_query_minute_refs,
 )
 from src.session_store import clear_saved_session, load_saved_session, save_token
 from src.zeus_client import AsyncZeusClient, ZeusClient, ZeusClientError
@@ -58,21 +60,26 @@ def sanitize_query_terms(query: str) -> tuple[str, list[str]]:
 
 
 def detect_market_from_query(query: str) -> str | None:
-    lowered = (query or "").lower()
-    matched: list[str] = []
+    query_text = query or ""
+    scored_matches: list[tuple[float, str]] = []
     for label, market in MARKET_OPTIONS.items():
+        score = 0.0
         for field in market.get("odds_fields") or []:
-            if re.search(rf"(?i)\b{re.escape(field)}\b", query or ""):
-                matched.append(label)
-                break
-    if not matched:
+            if not re.search(rf"(?i)\b{re.escape(field)}\b", query_text):
+                continue
+            field_score = 1.0
+            if re.search(rf"(?i)\b{re.escape(field)}\s+between\b", query_text):
+                field_score += 3.0
+            elif re.search(rf"(?i)\b{re.escape(field)}\s*(?:>=|<=|=)\b", query_text):
+                field_score += 1.5
+            field_score += min(len(field), 20) / 100.0
+            score = max(score, field_score)
+        if score:
+            scored_matches.append((score, label))
+    if not scored_matches:
         return None
-    if len(matched) == 1:
-        return matched[0]
-    for label in MARKET_OPTIONS.keys():
-        if label in matched:
-            return label
-    return matched[0]
+    scored_matches.sort(key=lambda item: (-item[0], list(MARKET_OPTIONS.keys()).index(item[1])))
+    return scored_matches[0][1]
 
 
 st.set_page_config(
@@ -662,18 +669,15 @@ def load_backtest_report(
     entry_minute: int,
     final_minute: int,
 ) -> dict:
-    sanitized_base, stripped_base = sanitize_query_terms(base_query)
-    sanitized_final, stripped_final = sanitize_query_terms(final_filter or "")
-    full_query = sanitized_base
-    if sanitized_final:
-        full_query = f"({sanitized_base}) and ({sanitized_final})" if sanitized_base else sanitized_final
-    stripped_terms = stripped_base
-    stripped_terms.extend(stripped_final)
+    entry_query_source = infer_entry_minute(base_query)
+    executed_base_query = rewrite_query_minute_refs(base_query, entry_query_source, entry_minute)
+    sanitized_base, stripped_base = sanitize_query_terms(executed_base_query)
+    executed_final_filter = rewrite_query_minute_refs(final_filter or "", infer_final_minute(final_filter or ""), final_minute)
     async def _load() -> dict:
         async with AsyncZeusClient(auth_token=_token) as async_client:
             base_count_task = async_client.count(sanitized_base) if sanitized_base else asyncio.sleep(0, result={"count": 0})
             full_rows_task = async_client.search_all(
-                full_query,
+                sanitized_base,
                 max_pages=max_pages,
                 max_games=max_games,
                 include_count=True,
@@ -690,6 +694,7 @@ def load_backtest_report(
                 commission=float(commission),
                 entry_minute=entry_minute,
                 final_minute=final_minute,
+                final_filter=executed_final_filter,
             )
             backtest = await run_backtest_async(async_client, lucy_rows, config)
             return {
@@ -697,9 +702,12 @@ def load_backtest_report(
                 "count_info": {"count": full_count_info},
                 "lucy_rows": lucy_rows,
                 "backtest": backtest,
-                "full_query": full_query,
-                "stripped_terms": stripped_terms,
-                "sanitized_final_filter": sanitized_final,
+                "full_query": sanitized_base,
+                "raw_base_query": base_query,
+                "executed_base_query": executed_base_query,
+                "raw_final_filter": final_filter,
+                "executed_final_filter": executed_final_filter,
+                "stripped_terms": stripped_base,
             }
 
     return _run_async(_load())
@@ -746,6 +754,7 @@ def render_optimization_tab(
     market_label = str(manual_inputs.get("market_label") or getattr(manual_config, "market_label", "") or "")
     stake_value = float(getattr(manual_config, "stake", 100.0) or 100.0)
     commission_value = float(getattr(manual_config, "commission", 0.065) or 0.065)
+    verification_filter_value = str(getattr(manual_config, "final_filter", "") or "")
     entry_default = int(manual_inputs.get("entry_minute") or getattr(manual_config, "entry_minute", 20) or 20)
     final_default = int(manual_inputs.get("final_minute") or getattr(manual_config, "final_minute", 500) or 500)
 
@@ -859,6 +868,7 @@ def render_optimization_tab(
                                 commission=float(commission_value),
                                 entry_minute=int(combo["entry_minute"]),
                                 final_minute=int(combo["final_minute"]),
+                                final_filter=verification_filter_value,
                             ),
                         )
                         metrics = report["metrics"]
@@ -1175,9 +1185,6 @@ def main() -> None:
             if not sanitized_base:
                 st.error("A consulta da estratégia ficou vazia depois da limpeza. Ajuste os termos e tente novamente.")
                 return
-            full_query = base_query
-            sanitized_final, _ = sanitize_query_terms(final_filter)
-            full_query = sanitized_base
             entry_minute = entry_minute_default
             final_minute = final_minute_default
         except ValueError:
