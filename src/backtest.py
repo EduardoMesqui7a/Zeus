@@ -8,7 +8,12 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 
-from src.query_parser import absolute_to_period_minute, evaluate_snapshot_query, infer_entry_minute
+from src.query_parser import (
+    absolute_to_period_minute,
+    evaluate_snapshot_query,
+    infer_entry_minute,
+    infer_snapshot_period,
+)
 from src.zeus_client import AsyncZeusClient, ZeusClient, ZeusClientError
 
 
@@ -122,6 +127,15 @@ def _should_cashout_at_snapshot(market: dict[str, Any], final_snapshot: dict[str
     if callable(early_decision):
         return not bool(early_decision(final_snapshot))
     return True
+
+
+def _resolve_final_snapshot_target(final_filter: str, final_minute: int) -> tuple[int, int]:
+    resolved_period = infer_snapshot_period(final_filter, final_minute)
+    if final_minute == 500:
+        return resolved_period, 90
+    if final_minute <= 0:
+        return resolved_period, 1
+    return resolved_period, int(final_minute)
 
 
 MARKET_OPTIONS: dict[str, dict[str, Any]] = {
@@ -479,7 +493,10 @@ def _build_row(
     market_settle_minute = _market_settlement_minute(market)
     if settlement_minute == 500:
         settlement_minute = market_settle_minute
-    final_snapshot = client.fetch_final_snapshot(game_id, final_minute=settlement_minute)
+        final_snapshot = client.fetch_final_snapshot(game_id, final_minute=settlement_minute)
+    else:
+        final_period, final_period_minute = _resolve_final_snapshot_target(config.final_filter, settlement_minute)
+        final_snapshot = client.fetch_snapshot(game_id, minute=final_period_minute, period=final_period)
 
     if config.final_filter and not evaluate_snapshot_query(config.final_filter, final_snapshot):
         return {
@@ -664,8 +681,12 @@ async def _build_row_async(
     market_settle_minute = _market_settlement_minute(market)
     if settlement_minute == 500:
         settlement_minute = market_settle_minute
-    final_task = client.fetch_final_snapshot(game_id, final_minute=settlement_minute)
-    entry_snapshot, final_snapshot = await asyncio.gather(entry_task, final_task)
+        final_task = client.fetch_final_snapshot(game_id, final_minute=settlement_minute)
+        entry_snapshot, final_snapshot = await asyncio.gather(entry_task, final_task)
+    else:
+        final_period, final_period_minute = _resolve_final_snapshot_target(config.final_filter, settlement_minute)
+        final_task = client.fetch_snapshot(game_id, minute=final_period_minute, period=final_period)
+        entry_snapshot, final_snapshot = await asyncio.gather(entry_task, final_task)
 
     if config.final_filter and not evaluate_snapshot_query(config.final_filter, final_snapshot):
         return {

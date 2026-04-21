@@ -7,6 +7,7 @@ from typing import Any
 
 
 MINUTE_PATTERN = re.compile(r"(?i)\bm(\d{1,3}|500)\.")
+PERIOD_PATTERN = re.compile(r"(?i)\bPeriodo\s*=\s*([12])\b")
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,17 @@ def infer_final_minute(query: str) -> int:
     if non_final:
         return max(non_final)
     return 500
+
+
+def infer_snapshot_period(query: str, minute: int | None = None) -> int:
+    match = PERIOD_PATTERN.search(query or "")
+    if match:
+        return int(match.group(1))
+    if minute is None:
+        return 1
+    if minute == 500 or minute > 45:
+        return 2
+    return 1
 
 
 def rewrite_query_minute_refs(query: str, source_minute: int | None, target_minute: int) -> str:

@@ -15,11 +15,17 @@ class FakeClient:
     def __init__(self, entry_snapshot: dict, final_snapshot: dict) -> None:
         self.entry_snapshot = entry_snapshot
         self.final_snapshot = final_snapshot
+        self.snapshot_calls: list[tuple[str, int, int]] = []
+        self.final_snapshot_calls: list[tuple[str, int]] = []
 
     def fetch_snapshot(self, game_id: str, minute: int, period: int) -> dict:
-        return self.entry_snapshot
+        self.snapshot_calls.append((game_id, minute, period))
+        if len(self.snapshot_calls) == 1:
+            return self.entry_snapshot
+        return self.final_snapshot
 
     def fetch_final_snapshot(self, game_id: str, final_minute: int = 500) -> dict:
+        self.final_snapshot_calls.append((game_id, final_minute))
         return self.final_snapshot
 
 
@@ -27,11 +33,17 @@ class AsyncFakeClient:
     def __init__(self, entry_snapshot: dict, final_snapshot: dict) -> None:
         self.entry_snapshot = entry_snapshot
         self.final_snapshot = final_snapshot
+        self.snapshot_calls: list[tuple[str, int, int]] = []
+        self.final_snapshot_calls: list[tuple[str, int]] = []
 
     async def fetch_snapshot(self, game_id: str, minute: int, period: int) -> dict:
-        return self.entry_snapshot
+        self.snapshot_calls.append((game_id, minute, period))
+        if len(self.snapshot_calls) == 1:
+            return self.entry_snapshot
+        return self.final_snapshot
 
     async def fetch_final_snapshot(self, game_id: str, final_minute: int = 500) -> dict:
+        self.final_snapshot_calls.append((game_id, final_minute))
         return self.final_snapshot
 
 
@@ -129,6 +141,39 @@ class MarketSettlementTests(unittest.TestCase):
         summary = _finalize_backtest([base_row], [result], config)
         self.assertEqual(summary["metrics"]["bets"], 0)
         self.assertEqual(summary["metrics"]["wins"], 0)
+
+    def test_final_filter_period_two_uses_second_half_snapshot(self) -> None:
+        base_row = {
+            "sport_event_id": "sr:match:dummy",
+            "NomeCasa": "home",
+            "NomeVisitante": "away",
+            "DataJogo": "2022-02-13T10:15:00Z",
+            "NivelDados": "Gold",
+            "query": "(m30.Minuto = 30)",
+        }
+        market = MARKET_OPTIONS["Back Under 0.5 HT"]
+        entry_snapshot = {"BackUnder05HT": 2.0}
+        final_snapshot = {
+            "BackUnder05HT": 1.5,
+            "Periodo": 2,
+            "GolsTotal": 0,
+            "GolsCasa": 0,
+            "GolsVisitante": 0,
+        }
+        client = FakeClient(entry_snapshot, final_snapshot)
+        config = BacktestConfig(
+            market_label="Back Under 0.5 HT",
+            stake=100.0,
+            commission=0.0,
+            entry_minute=30,
+            final_minute=45,
+            final_filter="(m45.Periodo = 2) and (m45.GolsTotal = 0)",
+        )
+
+        result = _build_row(client, base_row, config, market)
+        self.assertEqual(client.snapshot_calls[-1], ("sr:match:dummy", 45, 2))
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["won"])
 
     def test_async_backtest_matches_sync_backtest_for_all_markets(self) -> None:
         base_row = {
