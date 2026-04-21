@@ -47,6 +47,38 @@ class AsyncFakeClient:
         return self.final_snapshot
 
 
+class FallbackFakeClient:
+    def __init__(self, entry_snapshot: dict, final_snapshots: dict[int, dict]) -> None:
+        self.entry_snapshot = entry_snapshot
+        self.final_snapshots = final_snapshots
+        self.snapshot_calls: list[tuple[str, int, int]] = []
+
+    def fetch_snapshot(self, game_id: str, minute: int, period: int) -> dict:
+        self.snapshot_calls.append((game_id, minute, period))
+        if len(self.snapshot_calls) == 1:
+            return self.entry_snapshot
+        return self.final_snapshots.get(minute, {})
+
+    def fetch_final_snapshot(self, game_id: str, final_minute: int = 500) -> dict:
+        raise AssertionError("fetch_final_snapshot should not be used in this test")
+
+
+class AsyncFallbackFakeClient:
+    def __init__(self, entry_snapshot: dict, final_snapshots: dict[int, dict]) -> None:
+        self.entry_snapshot = entry_snapshot
+        self.final_snapshots = final_snapshots
+        self.snapshot_calls: list[tuple[str, int, int]] = []
+
+    async def fetch_snapshot(self, game_id: str, minute: int, period: int) -> dict:
+        self.snapshot_calls.append((game_id, minute, period))
+        if len(self.snapshot_calls) == 1:
+            return self.entry_snapshot
+        return self.final_snapshots.get(minute, {})
+
+    async def fetch_final_snapshot(self, game_id: str, final_minute: int = 500) -> dict:
+        raise AssertionError("fetch_final_snapshot should not be used in this test")
+
+
 class MarketSettlementTests(unittest.TestCase):
     def test_all_markets_keep_bet_win_aligned_with_profit(self) -> None:
         base_row = {
@@ -160,7 +192,7 @@ class MarketSettlementTests(unittest.TestCase):
             "GolsCasa": 0,
             "GolsVisitante": 0,
         }
-        client = FakeClient(entry_snapshot, final_snapshot)
+        client = FallbackFakeClient(entry_snapshot, {44: {}, 45: final_snapshot})
         config = BacktestConfig(
             market_label="Back Under 0.5 HT",
             stake=100.0,
@@ -171,7 +203,7 @@ class MarketSettlementTests(unittest.TestCase):
         )
 
         result = _build_row(client, base_row, config, market)
-        self.assertEqual(client.snapshot_calls[-1], ("sr:match:dummy", 44, 2))
+        self.assertEqual(client.snapshot_calls[-2:], [("sr:match:dummy", 44, 2), ("sr:match:dummy", 45, 2)])
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["won"])
 
@@ -198,6 +230,40 @@ class MarketSettlementTests(unittest.TestCase):
             )
             for key in ("won", "market_hit", "profit", "stake_risked", "exit_minute", "entry_odd", "exit_odd"):
                 self.assertEqual(sync_result.get(key), async_result.get(key), msg=f"{label} / {key}")
+
+    def test_async_final_filter_period_two_uses_explicit_second_half_minute(self) -> None:
+        base_row = {
+            "sport_event_id": "sr:match:dummy",
+            "NomeCasa": "home",
+            "NomeVisitante": "away",
+            "DataJogo": "2022-02-13T10:15:00Z",
+            "NivelDados": "Gold",
+            "query": "(m30.Minuto = 30)",
+        }
+        market = MARKET_OPTIONS["Back Under 0.5 HT"]
+        entry_snapshot = {"BackUnder05HT": 2.0}
+        final_snapshot = {
+            "BackUnder05HT": 1.5,
+            "Periodo": 2,
+            "GolsTotal": 0,
+            "GolsCasa": 0,
+            "GolsVisitante": 0,
+        }
+        client = AsyncFallbackFakeClient(entry_snapshot, {44: {}, 45: final_snapshot})
+        config = BacktestConfig(
+            market_label="Back Under 0.5 HT",
+            stake=100.0,
+            commission=0.0,
+            entry_minute=30,
+            final_minute=44,
+            final_filter="(m44.Periodo = 2) and (m44.GolsTotal = 0)",
+        )
+
+        result = __import__("asyncio").run(_build_row_async(client, base_row, config, market))
+        self.assertIn(("sr:match:dummy", 44, 2), client.snapshot_calls)
+        self.assertIn(("sr:match:dummy", 45, 2), client.snapshot_calls)
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["won"])
 
 
 if __name__ == "__main__":

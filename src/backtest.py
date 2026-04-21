@@ -129,6 +129,13 @@ def _should_cashout_at_snapshot(market: dict[str, Any], final_snapshot: dict[str
     return True
 
 
+def _snapshot_has_payload(snapshot: dict[str, Any]) -> bool:
+    if not snapshot:
+        return False
+    critical_fields = ("Minuto", "Periodo", "GolsCasa", "GolsVisitante")
+    return any(snapshot.get(field) is not None for field in critical_fields)
+
+
 def _resolve_final_snapshot_target(final_filter: str, final_minute: int) -> tuple[int, int]:
     resolved_period = infer_snapshot_period(final_filter, final_minute)
     if final_minute == 500:
@@ -136,6 +143,58 @@ def _resolve_final_snapshot_target(final_filter: str, final_minute: int) -> tupl
     if final_minute <= 0:
         return resolved_period, 1
     return resolved_period, int(final_minute)
+
+
+def _fetch_snapshot_with_fallback(
+    fetch_snapshot: Callable[[str, int, int], dict[str, Any]],
+    game_id: str,
+    *,
+    period: int,
+    minute: int,
+) -> dict[str, Any]:
+    attempts: list[int] = [int(minute)]
+    for delta in range(1, 6):
+        attempts.append(int(minute) + delta)
+        if int(minute) - delta > 0:
+            attempts.append(int(minute) - delta)
+
+    seen: set[int] = set()
+    last_snapshot: dict[str, Any] = {}
+    for candidate_minute in attempts:
+        if candidate_minute in seen or candidate_minute <= 0:
+            continue
+        seen.add(candidate_minute)
+        snapshot = fetch_snapshot(game_id, minute=candidate_minute, period=period)
+        if _snapshot_has_payload(snapshot):
+            return snapshot
+        last_snapshot = snapshot
+    return last_snapshot
+
+
+async def _fetch_snapshot_with_fallback_async(
+    fetch_snapshot: Callable[[str, int, int], Any],
+    game_id: str,
+    *,
+    period: int,
+    minute: int,
+) -> dict[str, Any]:
+    attempts: list[int] = [int(minute)]
+    for delta in range(1, 6):
+        attempts.append(int(minute) + delta)
+        if int(minute) - delta > 0:
+            attempts.append(int(minute) - delta)
+
+    seen: set[int] = set()
+    last_snapshot: dict[str, Any] = {}
+    for candidate_minute in attempts:
+        if candidate_minute in seen or candidate_minute <= 0:
+            continue
+        seen.add(candidate_minute)
+        snapshot = await fetch_snapshot(game_id, minute=candidate_minute, period=period)
+        if _snapshot_has_payload(snapshot):
+            return snapshot
+        last_snapshot = snapshot
+    return last_snapshot
 
 
 MARKET_OPTIONS: dict[str, dict[str, Any]] = {
@@ -496,7 +555,12 @@ def _build_row(
         final_snapshot = client.fetch_final_snapshot(game_id, final_minute=settlement_minute)
     else:
         final_period, final_period_minute = _resolve_final_snapshot_target(config.final_filter, settlement_minute)
-        final_snapshot = client.fetch_snapshot(game_id, minute=final_period_minute, period=final_period)
+        final_snapshot = _fetch_snapshot_with_fallback(
+            client.fetch_snapshot,
+            game_id,
+            period=final_period,
+            minute=final_period_minute,
+        )
 
     if config.final_filter and not evaluate_snapshot_query(config.final_filter, final_snapshot):
         return {
@@ -685,8 +749,13 @@ async def _build_row_async(
         entry_snapshot, final_snapshot = await asyncio.gather(entry_task, final_task)
     else:
         final_period, final_period_minute = _resolve_final_snapshot_target(config.final_filter, settlement_minute)
-        final_task = client.fetch_snapshot(game_id, minute=final_period_minute, period=final_period)
-        entry_snapshot, final_snapshot = await asyncio.gather(entry_task, final_task)
+        entry_snapshot = await entry_task
+        final_snapshot = await _fetch_snapshot_with_fallback_async(
+            client.fetch_snapshot,
+            game_id,
+            period=final_period,
+            minute=final_period_minute,
+        )
 
     if config.final_filter and not evaluate_snapshot_query(config.final_filter, final_snapshot):
         return {
