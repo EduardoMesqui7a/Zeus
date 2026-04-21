@@ -1156,7 +1156,7 @@ def main() -> None:
             help="Opcional. Deixe vazio para usar o padrão técnico do app.",
         )
         entry_minute_default = infer_entry_minute(strategy_query)
-        final_minute_default = 500
+        final_minute_default = infer_final_minute(final_check)
         entry_minute_override_error = None
         final_minute_override_error = None
         if entry_override.strip():

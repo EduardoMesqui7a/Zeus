@@ -3,6 +3,7 @@ import unittest
 from src.query_parser import (
     absolute_to_period_minute,
     evaluate_snapshot_query,
+    infer_final_minute,
     period_minute_to_absolute,
     rewrite_query_minute_refs,
 )
@@ -17,6 +18,9 @@ class QueryParserTests(unittest.TestCase):
 
     def test_period_minute_to_absolute_is_identity(self) -> None:
         self.assertEqual(period_minute_to_absolute(2, 80), 80)
+
+    def test_infer_final_minute_uses_final_filter_minute(self) -> None:
+        self.assertEqual(infer_final_minute("(m45.Periodo = 2) and (m45.GolsTotal = 0)"), 45)
 
     def test_rewrite_query_minute_refs_only_replaces_source_minute(self) -> None:
         query = '(m25.GolsTotal = 0) and (m500.DataJogo >= "2023-01-01")'
