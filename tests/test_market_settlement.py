@@ -207,6 +207,75 @@ class MarketSettlementTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["won"])
 
+    def test_back_under_half_ht_uses_cashout_when_market_is_still_open(self) -> None:
+        base_row = {
+            "sport_event_id": "sr:match:cashout",
+            "NomeCasa": "home",
+            "NomeVisitante": "away",
+            "DataJogo": "2022-02-13T10:15:00Z",
+            "NivelDados": "Gold",
+            "query": "(m30.Minuto = 30)",
+        }
+        market = MARKET_OPTIONS["Back Under 0.5 HT"]
+        entry_snapshot = {"BackUnder05HT": 2.9}
+        final_snapshot = {
+            "Minuto": 40,
+            "BackUnder05HT": 1.02,
+            "Periodo": 2,
+            "GolsTotal": 0,
+            "GolsCasa": 0,
+            "GolsVisitante": 0,
+        }
+        client = FakeClient(entry_snapshot, final_snapshot)
+        config = BacktestConfig(
+            market_label="Back Under 0.5 HT",
+            stake=100.0,
+            commission=0.0,
+            entry_minute=30,
+            final_minute=40,
+            final_filter="(m40.Minuto = 40) and (m40.Periodo = 2) and (m40.GolsTotal = 0)",
+        )
+
+        result = _build_row(client, base_row, config, market)
+        self.assertEqual(result["status"], "ok")
+        self.assertIsNone(result["market_hit"])
+        self.assertGreater(result["profit"], 0)
+        self.assertTrue(result["won"])
+
+    def test_back_under_half_ht_settles_when_market_is_already_closed(self) -> None:
+        base_row = {
+            "sport_event_id": "sr:match:settlement",
+            "NomeCasa": "home",
+            "NomeVisitante": "away",
+            "DataJogo": "2022-02-13T10:15:00Z",
+            "NivelDados": "Gold",
+            "query": "(m30.Minuto = 30)",
+        }
+        market = MARKET_OPTIONS["Back Under 0.5 HT"]
+        entry_snapshot = {"BackUnder05HT": 2.9}
+        final_snapshot = {
+            "Minuto": 40,
+            "BackUnder05HT": 1.02,
+            "Periodo": 2,
+            "GolsTotal": 1,
+            "GolsCasa": 1,
+            "GolsVisitante": 0,
+        }
+        client = FakeClient(entry_snapshot, final_snapshot)
+        config = BacktestConfig(
+            market_label="Back Under 0.5 HT",
+            stake=100.0,
+            commission=0.0,
+            entry_minute=30,
+            final_minute=40,
+            final_filter="(m40.Minuto = 40) and (m40.Periodo = 2)",
+        )
+
+        result = _build_row(client, base_row, config, market)
+        self.assertEqual(result["status"], "ok")
+        self.assertFalse(result.get("won", False))
+        self.assertLessEqual(result.get("profit", 0), 0)
+
     def test_async_backtest_matches_sync_backtest_for_all_markets(self) -> None:
         base_row = {
             "sport_event_id": "sr:match:dummy",

@@ -868,7 +868,11 @@ def render_optimization_tab(
                                 commission=float(commission_value),
                                 entry_minute=int(combo["entry_minute"]),
                                 final_minute=int(combo["final_minute"]),
-                                final_filter=verification_filter_value,
+                                final_filter=rewrite_query_minute_refs(
+                                    verification_filter_value,
+                                    infer_final_minute(verification_filter_value),
+                                    int(combo["final_minute"]),
+                                ),
                             ),
                         )
                         metrics = report["metrics"]
