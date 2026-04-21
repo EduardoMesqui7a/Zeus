@@ -146,7 +146,7 @@ class MarketSettlementTests(unittest.TestCase):
         self.assertAlmostEqual(result["profit"], -100.0, places=7)
         self.assertFalse(result["won"])
 
-    def test_final_filter_excludes_row_before_market_settlement(self) -> None:
+    def test_final_filter_does_not_exclude_row_before_market_settlement(self) -> None:
         base_row = {
             "sport_event_id": "sr:match:dummy",
             "NomeCasa": "home",
@@ -169,9 +169,10 @@ class MarketSettlementTests(unittest.TestCase):
         )
 
         result = _build_row(client, base_row, config, market)
-        self.assertEqual(result["status"], "fora da verificacao final")
+        self.assertEqual(result["status"], "ok")
+        self.assertFalse(result["final_verification_hit"])
         summary = _finalize_backtest([base_row], [result], config)
-        self.assertEqual(summary["metrics"]["bets"], 0)
+        self.assertEqual(summary["metrics"]["bets"], 1)
         self.assertEqual(summary["metrics"]["wins"], 0)
 
     def test_final_filter_period_two_uses_explicit_second_half_minute(self) -> None:
@@ -276,6 +277,40 @@ class MarketSettlementTests(unittest.TestCase):
         self.assertFalse(result.get("won", False))
         self.assertLessEqual(result.get("profit", 0), 0)
 
+    def test_back_under_half_ht_uses_final_snapshot_at_settlement_minute(self) -> None:
+        base_row = {
+            "sport_event_id": "sr:match:final-snapshot",
+            "NomeCasa": "home",
+            "NomeVisitante": "away",
+            "DataJogo": "2022-02-13T10:15:00Z",
+            "NivelDados": "Gold",
+            "query": "(m45.Minuto = 45)",
+        }
+        market = MARKET_OPTIONS["Back Under 0.5 HT"]
+        entry_snapshot = {"BackUnder05HT": 2.9}
+        final_snapshot = {
+            "Periodo": 1,
+            "GolsTotal": 0,
+            "GolsCasa": 0,
+            "GolsVisitante": 0,
+        }
+        client = FakeClient(entry_snapshot, final_snapshot)
+        config = BacktestConfig(
+            market_label="Back Under 0.5 HT",
+            stake=100.0,
+            commission=0.0,
+            entry_minute=45,
+            final_minute=45,
+            final_filter="(m45.Periodo = 1) and (m45.GolsTotal = 0)",
+        )
+
+        result = _build_row(client, base_row, config, market)
+        self.assertEqual(client.final_snapshot_calls, [])
+        self.assertIn(("sr:match:final-snapshot", 45, 1), client.snapshot_calls)
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["won"])
+        self.assertIsNone(result["exit_odd"])
+
     def test_async_backtest_matches_sync_backtest_for_all_markets(self) -> None:
         base_row = {
             "sport_event_id": "sr:match:dummy",
@@ -333,6 +368,69 @@ class MarketSettlementTests(unittest.TestCase):
         self.assertIn(("sr:match:dummy", 45, 2), client.snapshot_calls)
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["won"])
+
+    def test_async_final_filter_does_not_exclude_row_before_market_settlement(self) -> None:
+        base_row = {
+            "sport_event_id": "sr:match:async-filter",
+            "NomeCasa": "home",
+            "NomeVisitante": "away",
+            "DataJogo": "2022-02-13T10:15:00Z",
+            "NivelDados": "Gold",
+            "query": "(m79.Minuto = 79)",
+        }
+        market = MARKET_OPTIONS["Back Under 2.5 FT"]
+        entry_snapshot = {"BackUnder25FT": 2.0}
+        final_snapshot = {"BackUnder25FT": 2.0, "GolsCasa": 3, "GolsVisitante": 1}
+        client = AsyncFakeClient(entry_snapshot, final_snapshot)
+        config = BacktestConfig(
+            market_label="Back Under 2.5 FT",
+            stake=100.0,
+            commission=0.0,
+            entry_minute=79,
+            final_minute=79,
+            final_filter="GolsCasa <= 1",
+        )
+
+        result = __import__("asyncio").run(_build_row_async(client, base_row, config, market))
+        self.assertEqual(result["status"], "ok")
+        self.assertFalse(result["final_verification_hit"])
+        summary = _finalize_backtest([base_row], [result], config)
+        self.assertEqual(summary["metrics"]["bets"], 1)
+        self.assertEqual(summary["metrics"]["wins"], 0)
+
+    def test_async_back_under_half_ht_uses_final_snapshot_at_settlement_minute(self) -> None:
+        base_row = {
+            "sport_event_id": "sr:match:async-final-snapshot",
+            "NomeCasa": "home",
+            "NomeVisitante": "away",
+            "DataJogo": "2022-02-13T10:15:00Z",
+            "NivelDados": "Gold",
+            "query": "(m45.Minuto = 45)",
+        }
+        market = MARKET_OPTIONS["Back Under 0.5 HT"]
+        entry_snapshot = {"BackUnder05HT": 2.9}
+        final_snapshot = {
+            "Periodo": 1,
+            "GolsTotal": 0,
+            "GolsCasa": 0,
+            "GolsVisitante": 0,
+        }
+        client = AsyncFakeClient(entry_snapshot, final_snapshot)
+        config = BacktestConfig(
+            market_label="Back Under 0.5 HT",
+            stake=100.0,
+            commission=0.0,
+            entry_minute=45,
+            final_minute=45,
+            final_filter="(m45.Periodo = 1) and (m45.GolsTotal = 0)",
+        )
+
+        result = __import__("asyncio").run(_build_row_async(client, base_row, config, market))
+        self.assertEqual(client.final_snapshot_calls, [])
+        self.assertIn(("sr:match:async-final-snapshot", 45, 1), client.snapshot_calls)
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["won"])
+        self.assertIsNone(result["exit_odd"])
 
 
 if __name__ == "__main__":

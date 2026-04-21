@@ -50,15 +50,11 @@ def split_query_terms(query: str) -> list[str]:
 
 def sanitize_query_terms(query: str) -> tuple[str, list[str]]:
     safe_terms: list[str] = []
-    stripped_terms: list[str] = []
     for term in split_query_terms(query):
-        m500_fields = re.findall(r"(?i)\bm500\.([A-Za-z0-9_]+)", term)
-        if m500_fields and any(field not in SAFE_M500_FIELDS for field in m500_fields):
-            stripped_terms.append(term)
-            continue
-        safe_terms.append(term)
+        if term.strip():
+            safe_terms.append(term.strip())
     safe_query = " and ".join(safe_terms).strip()
-    return safe_query, stripped_terms
+    return safe_query, []
 
 
 def detect_market_from_query(query: str) -> str | None:
@@ -236,6 +232,7 @@ def build_results_display_df(result_df: pd.DataFrame) -> pd.DataFrame:
         "exit_minute",
         "exit_odd",
         "stake_risked",
+        "final_verification_hit",
         "won",
         "profit",
         "result_text",
@@ -249,6 +246,7 @@ def build_results_display_df(result_df: pd.DataFrame) -> pd.DataFrame:
             "Odd Entrada",
             "Profit",
             "Stake",
+            "Verificação Final",
             "Won",
             "Resultado",
             "Minuto Saída",
@@ -279,6 +277,7 @@ def build_results_display_df(result_df: pd.DataFrame) -> pd.DataFrame:
             "exit_minute": "Minuto Saída",
             "exit_odd": "Odd Saída",
             "stake_risked": "Stake",
+            "final_verification_hit": "Verificação Final",
             "won": "Won",
             "profit": "Profit",
             "result_text": "Resultado",
@@ -511,6 +510,10 @@ def render_timeline_frame(timeline: list[dict[str, object]], market_field: str) 
 def render_report_view(report: dict, token: str, market_label: str, base_query: str, final_filter: str) -> None:
 
     render_metrics(report["backtest"]["metrics"])
+    verification_hits = int(report["backtest"]["metrics"].get("verification_hits", 0) or 0)
+    matches = int(report["backtest"]["metrics"].get("matches", 0) or 0)
+    if matches:
+        st.caption(f"Verificação final: {verification_hits}/{matches} jogos ({(verification_hits / matches) * 100.0:.2f}%)")
     render_charts(report["backtest"]["result_df"], block_period=st.session_state.get("zeus_profit_period", "Mensal"))
 
     st.subheader("Resultados")
@@ -674,8 +677,9 @@ def load_backtest_report(
     entry_query_source = infer_entry_minute(base_query)
     executed_base_query = rewrite_query_minute_refs(base_query, entry_query_source, entry_minute)
     sanitized_base, stripped_base = sanitize_query_terms(executed_base_query)
-    final_target_period = infer_snapshot_period("", final_minute)
-    executed_final_filter = rewrite_query_minute_refs(final_filter or "", infer_final_minute(final_filter or ""), final_minute)
+    final_filter_source = final_filter or ""
+    final_target_period = infer_snapshot_period(final_filter_source, infer_final_minute(final_filter_source))
+    executed_final_filter = rewrite_query_minute_refs(final_filter_source, infer_final_minute(final_filter_source), final_minute)
     executed_final_filter = rewrite_query_period_refs(executed_final_filter, final_target_period)
     async def _load() -> dict:
         async with AsyncZeusClient(auth_token=_token) as async_client:
@@ -878,7 +882,10 @@ def render_optimization_tab(
                                         infer_final_minute(verification_filter_value),
                                         int(combo["final_minute"]),
                                     ),
-                                    infer_snapshot_period("", int(combo["final_minute"])),
+                                    infer_snapshot_period(
+                                        verification_filter_value,
+                                        infer_final_minute(verification_filter_value),
+                                    ),
                                 ),
                             ),
                         )
@@ -1147,11 +1154,15 @@ def main() -> None:
         if detected_market:
             st.caption(f"Mercado detectado na consulta da estratégia: {detected_market}")
         market_options = list(MARKET_OPTIONS.keys())
-        default_market_index = market_options.index(detected_market) if detected_market in market_options else 0
+        last_market_label = str(st.session_state.get("zeus_last_inputs", {}).get("market_label", "") or "").strip()
+        if last_market_label not in market_options:
+            last_market_label = detected_market if detected_market in market_options else market_options[0]
+        if "zeus_market_label" not in st.session_state:
+            st.session_state["zeus_market_label"] = last_market_label
         market_label = st.selectbox(
             "Mercado",
             market_options,
-            index=default_market_index,
+            key="zeus_market_label",
             help="Escolha o mercado que será usado no backtest. A consulta da estratégia pode sugerir um valor, mas você pode alterar.",
         )
         stake = st.number_input("Stake por entrada", min_value=1.0, value=100.0, step=10.0)

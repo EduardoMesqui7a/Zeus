@@ -239,16 +239,7 @@ class ZeusClient:
                 break
             if int(page_data.get("currentPage") or page) >= int(page_data.get("numberPages") or page):
                 break
-
-        deduped: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for row in rows:
-            key = str(row.get("sport_event_id") or "").strip()
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            deduped.append(row)
-        return deduped
+        return rows
 
     def fetch_snapshot(self, game_id: str, minute: int, period: int) -> dict[str, Any]:
         url = f"{GAMES_API_BASE_URL}/legacy/lucy/{game_id}"
@@ -537,16 +528,7 @@ class AsyncZeusClient:
             if max_games is not None and len(rows) >= max_games:
                 rows = rows[:max_games]
                 break
-
-        deduped: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for row in rows:
-            key = str(row.get("sport_event_id") or "").strip()
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            deduped.append(row)
-        return _pack(deduped)
+        return _pack(rows)
 
     async def fetch_snapshot(self, game_id: str, minute: int, period: int) -> dict[str, Any]:
         url = f"{GAMES_API_BASE_URL}/legacy/lucy/{game_id}"

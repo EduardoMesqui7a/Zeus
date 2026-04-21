@@ -552,7 +552,14 @@ def _build_row(
     market_settle_minute = _market_settlement_minute(market)
     if settlement_minute == 500:
         settlement_minute = market_settle_minute
-        final_snapshot = client.fetch_final_snapshot(game_id, final_minute=settlement_minute)
+    if settlement_minute >= market_settle_minute:
+        final_period, final_period_minute = _resolve_final_snapshot_target(config.final_filter, settlement_minute)
+        final_snapshot = _fetch_snapshot_with_fallback(
+            client.fetch_snapshot,
+            game_id,
+            period=final_period,
+            minute=final_period_minute,
+        )
     else:
         final_period, final_period_minute = _resolve_final_snapshot_target(config.final_filter, settlement_minute)
         final_snapshot = _fetch_snapshot_with_fallback(
@@ -562,17 +569,9 @@ def _build_row(
             minute=final_period_minute,
         )
 
-    if config.final_filter and not evaluate_snapshot_query(config.final_filter, final_snapshot):
-        return {
-            "sport_event_id": game_id,
-            "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
-            "match_datetime": _normalize_datetime(row.get("DataJogo")),
-            "league": row.get("NivelDados") or row.get("campeonato") or "",
-            "home_team": row.get("NomeCasa") or row.get("mandante") or "",
-            "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
-            "odds_fields": market.get("odds_fields") or [],
-            "status": "fora da verificacao final",
-        }
+    final_verification_hit = True
+    if config.final_filter:
+        final_verification_hit = bool(evaluate_snapshot_query(config.final_filter, final_snapshot))
 
     odd_fields = list(market.get("odds_fields") or [])
     odd_field = odd_fields[0] if odd_fields else market.get("odds_field")
@@ -589,20 +588,21 @@ def _build_row(
         }
 
     odd_value = float(odd_value)
-    exit_odd = _first_available(final_snapshot, *odd_fields)
-    if exit_odd is None and isinstance(odd_field, str):
-        exit_odd = final_snapshot.get(odd_field)
-    if exit_odd is None and isinstance(odd_field, str):
-        exit_odd = row.get(odd_field)
-    if exit_odd is None:
-        return {
-            "sport_event_id": game_id,
-            "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
-            "status": "sem odd de saida",
-        }
-    exit_odd = float(exit_odd)
+    exit_odd: float | None = None
 
     if _should_cashout_at_snapshot(market, final_snapshot, config.final_minute):
+        exit_odd_value = _first_available(final_snapshot, *odd_fields)
+        if exit_odd_value is None and isinstance(odd_field, str):
+            exit_odd_value = final_snapshot.get(odd_field)
+        if exit_odd_value is None and isinstance(odd_field, str):
+            exit_odd_value = row.get(odd_field)
+        if exit_odd_value is None:
+            return {
+                "sport_event_id": game_id,
+                "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
+                "status": "sem odd de saida",
+            }
+        exit_odd = float(exit_odd_value)
         if market["side"] == "back":
             profit, risk = _cashout_back_profit(config.stake, odd_value, exit_odd, config.commission)
         else:
@@ -633,6 +633,7 @@ def _build_row(
         "odds_field": odd_field,
         "odds_field_used": odd_field,
         "odds_fields": odd_fields,
+        "final_verification_hit": final_verification_hit,
         "final_goals": final_goals,
         "final_home_goals": int(final_snapshot.get("GolsCasa") or 0),
         "final_away_goals": int(final_snapshot.get("GolsVisitante") or 0),
@@ -692,6 +693,8 @@ def _finalize_backtest(
             "bets": 0,
             "wins": 0,
             "win_rate": 0.0,
+            "verification_hits": 0,
+            "verification_hit_rate": 0.0,
             "roi": 0.0,
             "total_profit": 0.0,
             "total_risked": 0.0,
@@ -712,11 +715,14 @@ def _finalize_backtest(
     total_risked = float(result_df["stake_risked"].sum())
     bets = int(len(result_df))
     wins = int(result_df["won"].fillna(False).sum())
+    verification_hits = int(result_df["final_verification_hit"].fillna(True).sum()) if "final_verification_hit" in result_df.columns else bets
     metrics = {
         "matches": len(rows),
         "bets": bets,
         "wins": wins,
         "win_rate": (wins / bets * 100.0) if bets else 0.0,
+        "verification_hits": verification_hits,
+        "verification_hit_rate": (verification_hits / bets * 100.0) if bets else 0.0,
         "roi": (total_profit / total_risked * 100.0) if total_risked else 0.0,
         "total_profit": total_profit,
         "total_risked": total_risked,
@@ -745,8 +751,15 @@ async def _build_row_async(
     market_settle_minute = _market_settlement_minute(market)
     if settlement_minute == 500:
         settlement_minute = market_settle_minute
-        final_task = client.fetch_final_snapshot(game_id, final_minute=settlement_minute)
-        entry_snapshot, final_snapshot = await asyncio.gather(entry_task, final_task)
+    if settlement_minute >= market_settle_minute:
+        final_period, final_period_minute = _resolve_final_snapshot_target(config.final_filter, settlement_minute)
+        entry_snapshot = await entry_task
+        final_snapshot = await _fetch_snapshot_with_fallback_async(
+            client.fetch_snapshot,
+            game_id,
+            period=final_period,
+            minute=final_period_minute,
+        )
     else:
         final_period, final_period_minute = _resolve_final_snapshot_target(config.final_filter, settlement_minute)
         entry_snapshot = await entry_task
@@ -757,17 +770,9 @@ async def _build_row_async(
             minute=final_period_minute,
         )
 
-    if config.final_filter and not evaluate_snapshot_query(config.final_filter, final_snapshot):
-        return {
-            "sport_event_id": game_id,
-            "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
-            "match_datetime": _normalize_datetime(row.get("DataJogo")),
-            "league": row.get("NivelDados") or row.get("campeonato") or "",
-            "home_team": row.get("NomeCasa") or row.get("mandante") or "",
-            "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
-            "odds_fields": market.get("odds_fields") or [],
-            "status": "fora da verificacao final",
-        }
+    final_verification_hit = True
+    if config.final_filter:
+        final_verification_hit = bool(evaluate_snapshot_query(config.final_filter, final_snapshot))
 
     odd_fields = list(market.get("odds_fields") or [])
     odd_field = odd_fields[0] if odd_fields else market.get("odds_field")
@@ -784,20 +789,21 @@ async def _build_row_async(
         }
 
     odd_value = float(odd_value)
-    exit_odd = _first_available(final_snapshot, *odd_fields)
-    if exit_odd is None and isinstance(odd_field, str):
-        exit_odd = final_snapshot.get(odd_field)
-    if exit_odd is None and isinstance(odd_field, str):
-        exit_odd = row.get(odd_field)
-    if exit_odd is None:
-        return {
-            "sport_event_id": game_id,
-            "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
-            "status": "sem odd de saida",
-        }
-    exit_odd = float(exit_odd)
+    exit_odd: float | None = None
 
     if _should_cashout_at_snapshot(market, final_snapshot, config.final_minute):
+        exit_odd_value = _first_available(final_snapshot, *odd_fields)
+        if exit_odd_value is None and isinstance(odd_field, str):
+            exit_odd_value = final_snapshot.get(odd_field)
+        if exit_odd_value is None and isinstance(odd_field, str):
+            exit_odd_value = row.get(odd_field)
+        if exit_odd_value is None:
+            return {
+                "sport_event_id": game_id,
+                "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
+                "status": "sem odd de saida",
+            }
+        exit_odd = float(exit_odd_value)
         if market["side"] == "back":
             profit, risk = _cashout_back_profit(config.stake, odd_value, exit_odd, config.commission)
         else:
@@ -827,6 +833,8 @@ async def _build_row_async(
         "exit_odd": exit_odd,
         "odds_field": odd_field,
         "odds_field_used": odd_field,
+        "odds_fields": odd_fields,
+        "final_verification_hit": final_verification_hit,
         "final_goals": final_goals,
         "final_home_goals": int(final_snapshot.get("GolsCasa") or 0),
         "final_away_goals": int(final_snapshot.get("GolsVisitante") or 0),
@@ -850,20 +858,25 @@ async def run_backtest_async(
         raise ZeusClientError(f"Mercado desconhecido: {config.market_label}")
 
     market = MARKET_OPTIONS[config.market_label]
+    client_config = getattr(client, "config", None)
+    snapshot_concurrency = int(getattr(client_config, "snapshot_concurrency", 16) or 16)
+    snapshot_concurrency = max(1, snapshot_concurrency)
+    semaphore = asyncio.Semaphore(snapshot_concurrency)
 
     async def _safe_build(row: dict[str, Any]) -> dict[str, Any]:
-        try:
-            return await _build_row_async(client, row, config, market)
-        except Exception as exc:
-            return {
-                "sport_event_id": row.get("sport_event_id"),
-                "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
-                "match_datetime": _normalize_datetime(row.get("DataJogo")),
-                "league": row.get("NivelDados") or row.get("campeonato") or "",
-                "home_team": row.get("NomeCasa") or row.get("mandante") or "",
-                "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
-                "status": f"erro: {exc}",
-            }
+        async with semaphore:
+            try:
+                return await _build_row_async(client, row, config, market)
+            except Exception as exc:
+                return {
+                    "sport_event_id": row.get("sport_event_id"),
+                    "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
+                    "match_datetime": _normalize_datetime(row.get("DataJogo")),
+                    "league": row.get("NivelDados") or row.get("campeonato") or "",
+                    "home_team": row.get("NomeCasa") or row.get("mandante") or "",
+                    "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
+                    "status": f"erro: {exc}",
+                }
 
     tasks = [_safe_build(row) for row in rows]
     enriched = await asyncio.gather(*tasks)
