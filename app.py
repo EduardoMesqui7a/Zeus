@@ -1153,6 +1153,10 @@ def main() -> None:
         last_market_label = str(st.session_state.get("zeus_last_inputs", {}).get("market_label", "") or "").strip()
         if last_market_label not in market_options:
             last_market_label = detected_market if detected_market in market_options else market_options[0]
+        if detected_market in market_options:
+            st.session_state["zeus_market_label"] = detected_market
+        elif st.session_state.get("zeus_market_label") not in market_options:
+            st.session_state["zeus_market_label"] = last_market_label
         market_label = st.selectbox(
             "Mercado",
             market_options,
