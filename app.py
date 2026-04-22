@@ -960,7 +960,7 @@ def render_optimization_tab(
                 value=min(500, entry_default + 10),
                 step=1,
             )
-            entry_step = st.number_input("Minuto de entrada - passo", min_value=1, max_value=100, value=1, step=1)
+            entry_step = st.number_input("Minuto de entrada - passo", min_value=1, max_value=100, value=5, step=1)
         with col_right:
             final_start = st.number_input(
                 "Minuto de saída - início",
@@ -976,7 +976,7 @@ def render_optimization_tab(
                 value=min(90, max(1, final_default + 10)),
                 step=1,
             )
-            final_step = st.number_input("Minuto de saída - passo", min_value=1, max_value=100, value=1, step=1)
+            final_step = st.number_input("Minuto de saída - passo", min_value=1, max_value=100, value=5, step=1)
 
         st.markdown("#### Filtro de volume")
         col_a, col_b = st.columns(2)
