@@ -287,10 +287,18 @@ class _QueryExpressionParser:
 
 
 def _lookup_snapshot_value(snapshot: dict[str, Any], name: str) -> Any:
+    lowered = name.lower()
+    if lowered == "golstotal":
+        home_goals = snapshot.get("GolsCasa")
+        away_goals = snapshot.get("GolsVisitante")
+        if home_goals is not None or away_goals is not None:
+            home_value = 0 if home_goals is None else home_goals
+            away_value = 0 if away_goals is None else away_goals
+            if _is_number(home_value) and _is_number(away_value):
+                return home_value + away_value
     if name in snapshot:
         value = snapshot.get(name)
         return 0 if value is None else value
-    lowered = name.lower()
     for key, value in snapshot.items():
         if str(key).lower() == lowered:
             return 0 if value is None else value

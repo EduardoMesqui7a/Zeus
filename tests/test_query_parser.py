@@ -50,6 +50,11 @@ class QueryParserTests(unittest.TestCase):
         query = '(m80.GolsCasa = 0) and (m80.GolsVisitante = 0)'
         self.assertTrue(evaluate_snapshot_query(query, snapshot))
 
+    def test_evaluate_snapshot_query_derives_golstotal_when_missing(self) -> None:
+        snapshot = {"GolsCasa": 1, "GolsVisitante": 2}
+        self.assertFalse(evaluate_snapshot_query("(m500.GolsTotal <= 2)", snapshot))
+        self.assertTrue(evaluate_snapshot_query("(m500.GolsTotal <= 3)", snapshot))
+
 
 if __name__ == "__main__":
     unittest.main()
