@@ -7,6 +7,7 @@ from datetime import datetime
 import json
 import os
 import re
+import subprocess
 
 import pandas as pd
 import plotly.express as px
@@ -73,6 +74,25 @@ def detect_market_from_query(query: str) -> str | None:
         return None
     scored_matches.sort(key=lambda item: (-item[0], list(MARKET_OPTIONS.keys()).index(item[1])))
     return scored_matches[0][1]
+
+
+def get_build_version() -> str:
+    env_version = (os.getenv("GIT_COMMIT") or os.getenv("COMMIT_SHA") or "").strip()
+    if env_version:
+        return env_version[:7]
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        version = result.stdout.strip()
+        if version:
+            return version
+    except Exception:
+        pass
+    return "local"
 
 
 st.set_page_config(
@@ -1007,10 +1027,16 @@ def main() -> None:
     st.session_state.setdefault("zeus_checked_session", False)
     commission_pct = 6.5
     commission_decimal = commission_pct / 100.0
+    build_version = get_build_version()
     st.markdown(
-        """
+        f"""
         <div class="hero">
-            <div class="kicker">Zeus + Lucy</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+                <div class="kicker">Zeus + Lucy</div>
+                <div style="display:inline-flex;align-items:center;padding:0.45rem 0.8rem;border-radius:999px;background:rgba(15,23,42,0.06);color:#0f172a;font-size:0.78rem;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;">
+                    Build {build_version}
+                </div>
+            </div>
             <h1 class="title">BACKTESTE <span>ZEUS / LUCY</span></h1>
             <p class="subtitle">
                 Fa?a consultas no Zeus, pagine os jogos na Lucy, puxe snapshots por minuto e obtenha
