@@ -241,7 +241,7 @@ def build_results_display_df(result_df: pd.DataFrame) -> pd.DataFrame:
             "Odd Entrada",
             "Profit",
             "Stake",
-            "Verificação Final",
+            "Checagem Final",
             "Won",
             "Resultado",
             "Minuto Saída",
@@ -272,7 +272,7 @@ def build_results_display_df(result_df: pd.DataFrame) -> pd.DataFrame:
             "exit_minute": "Minuto Saída",
             "exit_odd": "Odd Saída",
             "stake_risked": "Stake",
-            "final_verification_hit": "Verificação Final",
+            "final_verification_hit": "Checagem Final",
             "won": "Won",
             "profit": "Profit",
             "result_text": "Resultado",
@@ -509,7 +509,7 @@ def render_report_view(report: dict, token: str, market_label: str, base_query: 
     matches = int(report["backtest"]["metrics"].get("matches", 0) or 0)
     strategy_matches = int(report["backtest"]["metrics"].get("strategy_matches", matches) or matches)
     if strategy_matches:
-        st.caption(f"Verificação final: {verification_hits}/{strategy_matches} jogos ({(verification_hits / strategy_matches) * 100.0:.2f}%)")
+        st.caption(f"Checagem final: {verification_hits}/{strategy_matches} jogos ({(verification_hits / strategy_matches) * 100.0:.2f}%)")
     render_charts(report["backtest"]["result_df"], block_period=st.session_state.get("zeus_profit_period", "Mensal"))
 
     st.subheader("Resultados")
@@ -1141,9 +1141,9 @@ def main() -> None:
             height=220,
         )
         final_check = st.text_area(
-            "Verificação final",
+            "Checagem final",
             value="(m500.GolsTotal <= 2)",
-            help="Regra de liquidação. Use aqui a condição final da estratégia.",
+            help="Checagem pós-busca. Use aqui a validação extra da estratégia, sem alterar a amostra inicial.",
             height=90,
         )
         detected_market = detect_market_from_query(strategy_query)
