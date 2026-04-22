@@ -52,6 +52,7 @@ class FallbackFakeClient:
         self.entry_snapshot = entry_snapshot
         self.final_snapshots = final_snapshots
         self.snapshot_calls: list[tuple[str, int, int]] = []
+        self.final_snapshot_calls: list[tuple[str, int]] = []
 
     def fetch_snapshot(self, game_id: str, minute: int, period: int) -> dict:
         self.snapshot_calls.append((game_id, minute, period))
@@ -60,7 +61,8 @@ class FallbackFakeClient:
         return self.final_snapshots.get(minute, {})
 
     def fetch_final_snapshot(self, game_id: str, final_minute: int = 500) -> dict:
-        raise AssertionError("fetch_final_snapshot should not be used in this test")
+        self.final_snapshot_calls.append((game_id, final_minute))
+        return self.final_snapshots.get(final_minute, {})
 
 
 class AsyncFallbackFakeClient:
@@ -68,6 +70,7 @@ class AsyncFallbackFakeClient:
         self.entry_snapshot = entry_snapshot
         self.final_snapshots = final_snapshots
         self.snapshot_calls: list[tuple[str, int, int]] = []
+        self.final_snapshot_calls: list[tuple[str, int]] = []
 
     async def fetch_snapshot(self, game_id: str, minute: int, period: int) -> dict:
         self.snapshot_calls.append((game_id, minute, period))
@@ -76,7 +79,8 @@ class AsyncFallbackFakeClient:
         return self.final_snapshots.get(minute, {})
 
     async def fetch_final_snapshot(self, game_id: str, final_minute: int = 500) -> dict:
-        raise AssertionError("fetch_final_snapshot should not be used in this test")
+        self.final_snapshot_calls.append((game_id, final_minute))
+        return self.final_snapshots.get(final_minute, {})
 
 
 class MarketSettlementTests(unittest.TestCase):
@@ -203,12 +207,12 @@ class MarketSettlementTests(unittest.TestCase):
 
         under_client = FallbackFakeClient(entry_snapshot, final_snapshots)
         under_result = _build_row(under_client, base_row, config, MARKET_OPTIONS["Back Under 0.5 HT"])
-        self.assertIn(("sr:match:dummy-market", 90, 2), under_client.snapshot_calls)
+        self.assertEqual(under_client.final_snapshot_calls, [("sr:match:dummy-market", 500)])
         self.assertFalse(under_result["final_verification_hit"])
 
         lay_client = FallbackFakeClient(entry_snapshot, final_snapshots)
         lay_result = _build_row(lay_client, base_row, config, MARKET_OPTIONS["Lay Goleada Casa FT"])
-        self.assertIn(("sr:match:dummy-market", 90, 2), lay_client.snapshot_calls)
+        self.assertEqual(lay_client.final_snapshot_calls, [("sr:match:dummy-market", 500)])
         self.assertFalse(lay_result["final_verification_hit"])
         self.assertGreaterEqual(lay_result["final_home_goals"], 5)
 
@@ -463,12 +467,12 @@ class MarketSettlementTests(unittest.TestCase):
 
         under_client = AsyncFallbackFakeClient(entry_snapshot, final_snapshots)
         under_result = __import__("asyncio").run(_build_row_async(under_client, base_row, config, MARKET_OPTIONS["Back Under 0.5 HT"]))
-        self.assertIn(("sr:match:async-dummy-market", 90, 2), under_client.snapshot_calls)
+        self.assertEqual(under_client.final_snapshot_calls, [("sr:match:async-dummy-market", 500)])
         self.assertFalse(under_result["final_verification_hit"])
 
         lay_client = AsyncFallbackFakeClient(entry_snapshot, final_snapshots)
         lay_result = __import__("asyncio").run(_build_row_async(lay_client, base_row, config, MARKET_OPTIONS["Lay Goleada Casa FT"]))
-        self.assertIn(("sr:match:async-dummy-market", 90, 2), lay_client.snapshot_calls)
+        self.assertEqual(lay_client.final_snapshot_calls, [("sr:match:async-dummy-market", 500)])
         self.assertFalse(lay_result["final_verification_hit"])
 
     def test_async_back_under_half_ht_uses_final_snapshot_at_settlement_minute(self) -> None:

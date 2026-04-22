@@ -171,6 +171,30 @@ def _fetch_snapshot_with_fallback(
     return last_snapshot
 
 
+def _fetch_final_snapshot_for_settlement(
+    client: ZeusClient | AsyncZeusClient,
+    game_id: str,
+    settlement_minute: int,
+    final_filter: str,
+) -> dict[str, Any]:
+    if settlement_minute == 500:
+        fetch_final_snapshot = getattr(client, "fetch_final_snapshot", None)
+        if callable(fetch_final_snapshot):
+            try:
+                snapshot = fetch_final_snapshot(game_id, final_minute=settlement_minute)
+                if snapshot:
+                    return snapshot
+            except Exception:
+                pass
+    final_period, final_period_minute = _resolve_final_snapshot_target(final_filter, settlement_minute)
+    return _fetch_snapshot_with_fallback(
+        client.fetch_snapshot,
+        game_id,
+        period=final_period,
+        minute=final_period_minute,
+    )
+
+
 async def _fetch_snapshot_with_fallback_async(
     fetch_snapshot: Callable[[str, int, int], Any],
     game_id: str,
@@ -195,6 +219,30 @@ async def _fetch_snapshot_with_fallback_async(
             return snapshot
         last_snapshot = snapshot
     return last_snapshot
+
+
+async def _fetch_final_snapshot_for_settlement_async(
+    client: AsyncZeusClient | ZeusClient,
+    game_id: str,
+    settlement_minute: int,
+    final_filter: str,
+) -> dict[str, Any]:
+    if settlement_minute == 500:
+        fetch_final_snapshot = getattr(client, "fetch_final_snapshot", None)
+        if callable(fetch_final_snapshot):
+            try:
+                snapshot = await fetch_final_snapshot(game_id, final_minute=settlement_minute)
+                if snapshot:
+                    return snapshot
+            except Exception:
+                pass
+    final_period, final_period_minute = _resolve_final_snapshot_target(final_filter, settlement_minute)
+    return await _fetch_snapshot_with_fallback_async(
+        client.fetch_snapshot,
+        game_id,
+        period=final_period,
+        minute=final_period_minute,
+    )
 
 
 MARKET_OPTIONS: dict[str, dict[str, Any]] = {
@@ -561,12 +609,11 @@ def _build_row(
     entry_period, entry_period_minute = absolute_to_period_minute(entry_minute)
     entry_snapshot = client.fetch_snapshot(game_id, minute=entry_period_minute, period=entry_period)
     settlement_minute = config.final_minute
-    final_period, final_period_minute = _resolve_final_snapshot_target(config.final_filter, settlement_minute)
-    final_snapshot = _fetch_snapshot_with_fallback(
-        client.fetch_snapshot,
+    final_snapshot = _fetch_final_snapshot_for_settlement(
+        client,
         game_id,
-        period=final_period,
-        minute=final_period_minute,
+        settlement_minute,
+        config.final_filter,
     )
 
     final_verification_hit = True
@@ -761,13 +808,12 @@ async def _build_row_async(
     entry_period, entry_period_minute = absolute_to_period_minute(entry_minute)
     entry_task = client.fetch_snapshot(game_id, minute=entry_period_minute, period=entry_period)
     settlement_minute = config.final_minute
-    final_period, final_period_minute = _resolve_final_snapshot_target(config.final_filter, settlement_minute)
     entry_snapshot = await entry_task
-    final_snapshot = await _fetch_snapshot_with_fallback_async(
-        client.fetch_snapshot,
+    final_snapshot = await _fetch_final_snapshot_for_settlement_async(
+        client,
         game_id,
-        period=final_period,
-        minute=final_period_minute,
+        settlement_minute,
+        config.final_filter,
     )
 
     final_verification_hit = True
