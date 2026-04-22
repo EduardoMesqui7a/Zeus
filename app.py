@@ -327,7 +327,9 @@ def _build_odd_bucket_summary(results_df: pd.DataFrame) -> pd.DataFrame:
     )
     grouped["winrate"] = grouped.apply(lambda row: (row["wins"] / row["bets"] * 100.0) if row["bets"] else 0.0, axis=1)
     grouped["roi"] = grouped.apply(lambda row: (row["profit"] / row["risk"] * 100.0) if row["risk"] else 0.0, axis=1)
-    grouped["odd_bucket"] = grouped["odd_bucket"].astype(str)
+    grouped["odd_bucket"] = grouped["odd_bucket"].apply(
+        lambda bucket: f"[{bucket.left:.1f}, {bucket.right:.1f}]" if hasattr(bucket, "left") and hasattr(bucket, "right") else str(bucket)
+    )
     return grouped
 
 
