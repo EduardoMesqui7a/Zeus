@@ -1034,7 +1034,7 @@ def main() -> None:
             <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
                 <div class="kicker">Zeus + Lucy</div>
                 <div style="display:inline-flex;align-items:center;padding:0.45rem 0.8rem;border-radius:999px;background:rgba(15,23,42,0.06);color:#0f172a;font-size:0.78rem;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;">
-                    Build {build_version}
+                    Commit {build_version}
                 </div>
             </div>
             <h1 class="title">BACKTESTE <span>ZEUS / LUCY</span></h1>
@@ -1042,6 +1042,9 @@ def main() -> None:
                 Fa?a consultas no Zeus, pagine os jogos na Lucy, puxe snapshots por minuto e obtenha
                 ROI, taxa de acerto, drawdown, curva de capital e leitura detalhada por jogo.
             </p>
+            <div style="margin-top:0.6rem;color:#64748b;font-size:0.9rem;font-weight:600;">
+                Deploy atual com a correção do snapshot final de `m500`.
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
