@@ -50,6 +50,18 @@ def _app_headers(base_url: str, auth_token: str = "") -> dict[str, str]:
     return headers
 
 
+def _dedupe_rows_by_sport_event_id(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for row in rows:
+        game_id = str(row.get("sport_event_id") or "").strip()
+        if not game_id or game_id in seen_ids:
+            continue
+        seen_ids.add(game_id)
+        deduped.append(row)
+    return deduped
+
+
 class ZeusClientError(RuntimeError):
     pass
 
@@ -242,7 +254,7 @@ class ZeusClient:
                 break
             if int(page_data.get("currentPage") or page) >= int(page_data.get("numberPages") or page):
                 break
-        return rows
+        return _dedupe_rows_by_sport_event_id(rows)
 
     def fetch_snapshot(self, game_id: str, minute: int, period: int) -> dict[str, Any]:
         url = f"{GAMES_API_BASE_URL}/legacy/lucy/{game_id}"
@@ -549,7 +561,7 @@ class AsyncZeusClient:
             if max_games is not None and len(rows) >= max_games:
                 rows = rows[:max_games]
                 break
-        return _pack(rows)
+        return _pack(_dedupe_rows_by_sport_event_id(rows))
 
     async def fetch_snapshot(self, game_id: str, minute: int, period: int) -> dict[str, Any]:
         url = f"{GAMES_API_BASE_URL}/legacy/lucy/{game_id}"

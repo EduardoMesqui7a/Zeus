@@ -835,6 +835,10 @@ def load_backtest_report(
     executed_final_filter = rewrite_query_period_refs(executed_final_filter, final_target_period)
     async def _load() -> dict:
         async with AsyncZeusClient(auth_token=_token) as async_client:
+            async_client.config = replace(
+                async_client.config,
+                page_concurrency=1,
+            )
             base_count_task = async_client.count(sanitized_base) if sanitized_base else asyncio.sleep(0, result={"count": 0})
             full_rows_task = async_client.search_all(
                 sanitized_base,
@@ -1119,7 +1123,7 @@ def render_optimization_tab(
             async with AsyncZeusClient(auth_token=token) as async_client:
                 async_client.config = replace(
                     async_client.config,
-                    page_concurrency=max(async_client.config.page_concurrency, 16),
+                    page_concurrency=1,
                     snapshot_concurrency=max(async_client.config.snapshot_concurrency, 32),
                     max_connections=max(async_client.config.max_connections, 64),
                     max_keepalive_connections=max(async_client.config.max_keepalive_connections, 32),

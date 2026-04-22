@@ -1,9 +1,22 @@
 import unittest
 
-from src.zeus_client import ZeusClient
+from src.zeus_client import ZeusClient, _dedupe_rows_by_sport_event_id
 
 
 class ZeusClientFinalSnapshotTests(unittest.TestCase):
+    def test_dedupe_rows_by_sport_event_id_keeps_first_occurrence(self) -> None:
+        rows = [
+            {"sport_event_id": "sr:match:1", "value": 1},
+            {"sport_event_id": "sr:match:2", "value": 2},
+            {"sport_event_id": "sr:match:1", "value": 3},
+            {"sport_event_id": "", "value": 4},
+        ]
+
+        deduped = _dedupe_rows_by_sport_event_id(rows)
+        self.assertEqual([row["sport_event_id"] for row in deduped], ["sr:match:1", "sr:match:2"])
+        self.assertEqual(deduped[0]["value"], 1)
+        self.assertEqual(deduped[1]["value"], 2)
+
     def test_final_snapshot_prefers_true_final_minute_snapshot(self) -> None:
         client = ZeusClient(auth_token="token")
         calls: list[tuple[int, int]] = []
