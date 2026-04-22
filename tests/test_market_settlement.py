@@ -177,6 +177,40 @@ class MarketSettlementTests(unittest.TestCase):
         self.assertEqual(summary["metrics"]["bets"], 0)
         self.assertEqual(len(summary["result_df"]), 0)
 
+    def test_final_filter_uses_requested_final_minute_for_all_markets(self) -> None:
+        base_row = {
+            "sport_event_id": "sr:match:dummy-market",
+            "NomeCasa": "home",
+            "NomeVisitante": "away",
+            "DataJogo": "2022-02-13T10:15:00Z",
+            "NivelDados": "Gold",
+            "query": "(m20.Minuto = 20)",
+        }
+        entry_snapshot = {"BackUnder05HT": 2.5, "LayGoleadaCasaFT": 40.0}
+        final_snapshots = {
+            45: {"BackUnder05HT": 2.5, "LayGoleadaCasaFT": 40.0, "GolsCasa": 1, "GolsVisitante": 0},
+            90: {"BackUnder05HT": 2.5, "LayGoleadaCasaFT": 40.0, "GolsCasa": 5, "GolsVisitante": 3},
+        }
+        config = BacktestConfig(
+            market_label="Back Under 0.5 HT",
+            stake=100.0,
+            commission=0.0,
+            entry_minute=20,
+            final_minute=500,
+            final_filter="((m500.GolsCasa < 4) OR (m500.GolsCasa <= m500.GolsVisitante))",
+        )
+
+        under_client = FallbackFakeClient(entry_snapshot, final_snapshots)
+        under_result = _build_row(under_client, base_row, config, MARKET_OPTIONS["Back Under 0.5 HT"])
+        self.assertIn(("sr:match:dummy-market", 90, 2), under_client.snapshot_calls)
+        self.assertFalse(under_result["final_verification_hit"])
+
+        lay_client = FallbackFakeClient(entry_snapshot, final_snapshots)
+        lay_result = _build_row(lay_client, base_row, config, MARKET_OPTIONS["Lay Goleada Casa FT"])
+        self.assertIn(("sr:match:dummy-market", 90, 2), lay_client.snapshot_calls)
+        self.assertFalse(lay_result["final_verification_hit"])
+        self.assertGreaterEqual(lay_result["final_home_goals"], 5)
+
     def test_final_filter_period_two_uses_explicit_second_half_minute(self) -> None:
         base_row = {
             "sport_event_id": "sr:match:dummy",
@@ -401,6 +435,39 @@ class MarketSettlementTests(unittest.TestCase):
         self.assertEqual(summary["metrics"]["matches"], 0)
         self.assertEqual(summary["metrics"]["bets"], 0)
         self.assertEqual(len(summary["result_df"]), 0)
+
+    def test_async_final_filter_uses_requested_final_minute_for_all_markets(self) -> None:
+        base_row = {
+            "sport_event_id": "sr:match:async-dummy-market",
+            "NomeCasa": "home",
+            "NomeVisitante": "away",
+            "DataJogo": "2022-02-13T10:15:00Z",
+            "NivelDados": "Gold",
+            "query": "(m20.Minuto = 20)",
+        }
+        entry_snapshot = {"BackUnder05HT": 2.5, "LayGoleadaCasaFT": 40.0}
+        final_snapshots = {
+            45: {"BackUnder05HT": 2.5, "LayGoleadaCasaFT": 40.0, "GolsCasa": 1, "GolsVisitante": 0},
+            90: {"BackUnder05HT": 2.5, "LayGoleadaCasaFT": 40.0, "GolsCasa": 5, "GolsVisitante": 3},
+        }
+        config = BacktestConfig(
+            market_label="Back Under 0.5 HT",
+            stake=100.0,
+            commission=0.0,
+            entry_minute=20,
+            final_minute=500,
+            final_filter="((m500.GolsCasa < 4) OR (m500.GolsCasa <= m500.GolsVisitante))",
+        )
+
+        under_client = AsyncFallbackFakeClient(entry_snapshot, final_snapshots)
+        under_result = __import__("asyncio").run(_build_row_async(under_client, base_row, config, MARKET_OPTIONS["Back Under 0.5 HT"]))
+        self.assertIn(("sr:match:async-dummy-market", 90, 2), under_client.snapshot_calls)
+        self.assertFalse(under_result["final_verification_hit"])
+
+        lay_client = AsyncFallbackFakeClient(entry_snapshot, final_snapshots)
+        lay_result = __import__("asyncio").run(_build_row_async(lay_client, base_row, config, MARKET_OPTIONS["Lay Goleada Casa FT"]))
+        self.assertIn(("sr:match:async-dummy-market", 90, 2), lay_client.snapshot_calls)
+        self.assertFalse(lay_result["final_verification_hit"])
 
     def test_async_back_under_half_ht_uses_final_snapshot_at_settlement_minute(self) -> None:
         base_row = {

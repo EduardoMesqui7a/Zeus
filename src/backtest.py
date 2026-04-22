@@ -549,25 +549,13 @@ def _build_row(
     entry_period, entry_period_minute = absolute_to_period_minute(entry_minute)
     entry_snapshot = client.fetch_snapshot(game_id, minute=entry_period_minute, period=entry_period)
     settlement_minute = config.final_minute
-    market_settle_minute = _market_settlement_minute(market)
-    if settlement_minute == 500:
-        settlement_minute = market_settle_minute
-    if settlement_minute >= market_settle_minute:
-        final_period, final_period_minute = _resolve_final_snapshot_target(config.final_filter, settlement_minute)
-        final_snapshot = _fetch_snapshot_with_fallback(
-            client.fetch_snapshot,
-            game_id,
-            period=final_period,
-            minute=final_period_minute,
-        )
-    else:
-        final_period, final_period_minute = _resolve_final_snapshot_target(config.final_filter, settlement_minute)
-        final_snapshot = _fetch_snapshot_with_fallback(
-            client.fetch_snapshot,
-            game_id,
-            period=final_period,
-            minute=final_period_minute,
-        )
+    final_period, final_period_minute = _resolve_final_snapshot_target(config.final_filter, settlement_minute)
+    final_snapshot = _fetch_snapshot_with_fallback(
+        client.fetch_snapshot,
+        game_id,
+        period=final_period,
+        minute=final_period_minute,
+    )
 
     final_verification_hit = True
     if config.final_filter:
@@ -753,27 +741,14 @@ async def _build_row_async(
     entry_period, entry_period_minute = absolute_to_period_minute(entry_minute)
     entry_task = client.fetch_snapshot(game_id, minute=entry_period_minute, period=entry_period)
     settlement_minute = config.final_minute
-    market_settle_minute = _market_settlement_minute(market)
-    if settlement_minute == 500:
-        settlement_minute = market_settle_minute
-    if settlement_minute >= market_settle_minute:
-        final_period, final_period_minute = _resolve_final_snapshot_target(config.final_filter, settlement_minute)
-        entry_snapshot = await entry_task
-        final_snapshot = await _fetch_snapshot_with_fallback_async(
-            client.fetch_snapshot,
-            game_id,
-            period=final_period,
-            minute=final_period_minute,
-        )
-    else:
-        final_period, final_period_minute = _resolve_final_snapshot_target(config.final_filter, settlement_minute)
-        entry_snapshot = await entry_task
-        final_snapshot = await _fetch_snapshot_with_fallback_async(
-            client.fetch_snapshot,
-            game_id,
-            period=final_period,
-            minute=final_period_minute,
-        )
+    final_period, final_period_minute = _resolve_final_snapshot_target(config.final_filter, settlement_minute)
+    entry_snapshot = await entry_task
+    final_snapshot = await _fetch_snapshot_with_fallback_async(
+        client.fetch_snapshot,
+        game_id,
+        period=final_period,
+        minute=final_period_minute,
+    )
 
     final_verification_hit = True
     if config.final_filter:
