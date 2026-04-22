@@ -35,6 +35,18 @@ from src.zeus_client import AsyncZeusClient, ZeusClient, ZeusClientError
 build_int_range = optimization_mod.build_int_range
 
 
+def dedupe_rows_by_sport_event_id(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    deduped: list[dict[str, object]] = []
+    seen_ids: set[str] = set()
+    for row in rows:
+        game_id = str(row.get("sport_event_id") or "").strip()
+        if not game_id or game_id in seen_ids:
+            continue
+        seen_ids.add(game_id)
+        deduped.append(row)
+    return deduped
+
+
 def build_minute_candidate_grid(entry_minutes, final_minutes):
     if hasattr(optimization_mod, "build_minute_candidate_grid"):
         return optimization_mod.build_minute_candidate_grid(entry_minutes, final_minutes)
@@ -852,6 +864,8 @@ def load_backtest_report(
             else:
                 lucy_rows = list(full_bundle or [])
                 full_count_info = len(lucy_rows)
+            lucy_rows = dedupe_rows_by_sport_event_id(lucy_rows)
+            full_count_info = len(lucy_rows)
             config = BacktestConfig(
                 market_label=market_label,
                 stake=float(stake),
