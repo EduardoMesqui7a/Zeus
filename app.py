@@ -305,6 +305,66 @@ def build_results_display_df(result_df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def _build_odd_bucket_summary(results_df: pd.DataFrame) -> pd.DataFrame:
+    odd_frame = results_df.loc[
+        results_df["entry_odd"].notna(),
+        ["entry_odd", "profit", "stake_risked", "won"],
+    ].copy()
+    if odd_frame.empty:
+        return pd.DataFrame()
+
+    bins = min(12, max(5, int(len(odd_frame) ** 0.5)))
+    odd_frame["odd_bucket"] = pd.cut(odd_frame["entry_odd"], bins=bins, include_lowest=True, duplicates="drop")
+    grouped = (
+        odd_frame.groupby("odd_bucket", observed=False)
+        .agg(
+            bets=("entry_odd", "size"),
+            wins=("won", lambda series: int(pd.Series(series).fillna(False).sum())),
+            profit=("profit", "sum"),
+            risk=("stake_risked", "sum"),
+        )
+        .reset_index()
+    )
+    grouped["winrate"] = grouped.apply(lambda row: (row["wins"] / row["bets"] * 100.0) if row["bets"] else 0.0, axis=1)
+    grouped["roi"] = grouped.apply(lambda row: (row["profit"] / row["risk"] * 100.0) if row["risk"] else 0.0, axis=1)
+    grouped["odd_bucket"] = grouped["odd_bucket"].astype(str)
+    return grouped
+
+
+def _build_period_summary(block_df: pd.DataFrame, freq: str) -> pd.DataFrame:
+    if block_df.empty:
+        return pd.DataFrame()
+
+    period_rows: list[dict[str, object]] = []
+    for period_value, group in block_df.groupby(pd.Grouper(key="match_datetime", freq=freq), dropna=True):
+        if group.empty:
+            continue
+        group = group.sort_values("match_datetime")
+        cumulative = group["profit"].cumsum()
+        peak = cumulative.cummax()
+        drawdown = cumulative - peak
+        bets = int(len(group))
+        wins = int(group["won"].fillna(False).sum())
+        total_profit = float(group["profit"].sum())
+        total_risk = float(group["stake_risked"].sum())
+        period_rows.append(
+            {
+                "period": period_value,
+                "bets": bets,
+                "wins": wins,
+                "winrate": (wins / bets * 100.0) if bets else 0.0,
+                "profit": total_profit,
+                "roi": (total_profit / total_risk * 100.0) if total_risk else 0.0,
+                "drawdown": float(drawdown.min()) if not drawdown.empty else 0.0,
+            }
+        )
+
+    summary = pd.DataFrame(period_rows)
+    if summary.empty:
+        return summary
+    return summary.sort_values("period").reset_index(drop=True)
+
+
 def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> None:
     if results_df.empty:
         return
@@ -331,56 +391,70 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
                 line=dict(color="#0f766e", width=3),
             )
         )
+        fig.add_trace(
+            go.Scatter(
+                x=results_df["match_datetime"],
+                y=results_df["drawdown"],
+                mode="lines",
+                name="Drawdown",
+                line=dict(color="#dc2626", width=2, dash="dot"),
+                yaxis="y2",
+            )
+        )
         fig.update_layout(
             height=420,
             margin=dict(l=0, r=0, t=20, b=0),
             template="plotly_white",
             legend=dict(orientation="h"),
             yaxis_title="Resultado acumulado",
+            yaxis2=dict(overlaying="y", side="right", title="Drawdown"),
         )
         st.plotly_chart(fig, width="stretch")
 
     with right:
-        entry_odd = results_df["entry_odd"].dropna()
-        bins = min(18, max(6, int(len(entry_odd) ** 0.5))) if len(entry_odd) else 18
-        hist = px.histogram(
-            results_df,
-            x="entry_odd",
-            nbins=bins,
-            title="Faixa de Odd x Jogos",
+        odd_summary = _build_odd_bucket_summary(results_df)
+        odd_chart = go.Figure()
+        if not odd_summary.empty:
+            odd_chart.add_trace(
+                go.Bar(
+                    x=odd_summary["odd_bucket"],
+                    y=odd_summary["bets"],
+                    name="Bets",
+                    marker_color="#f59e0b",
+                    opacity=0.85,
+                )
+            )
+            odd_chart.add_trace(
+                go.Scatter(
+                    x=odd_summary["odd_bucket"],
+                    y=odd_summary["winrate"],
+                    mode="lines+markers",
+                    name="Winrate %",
+                    line=dict(color="#16a34a", width=3),
+                    yaxis="y2",
+                )
+            )
+            odd_chart.add_trace(
+                go.Scatter(
+                    x=odd_summary["odd_bucket"],
+                    y=odd_summary["roi"],
+                    mode="lines+markers",
+                    name="ROI %",
+                    line=dict(color="#2563eb", width=3),
+                    yaxis="y2",
+                )
+            )
+        odd_chart.update_layout(
+            title="ROI e Winrate por faixa de odd",
+            height=420,
+            margin=dict(l=0, r=0, t=50, b=0),
+            template="plotly_white",
+            barmode="group",
+            legend=dict(orientation="h"),
+            yaxis=dict(title="Bets"),
+            yaxis2=dict(overlaying="y", side="right", title="Percentual"),
         )
-        counts, edges = pd.cut(entry_odd, bins=bins, retbins=True, include_lowest=True, duplicates="drop")
-        if len(counts):
-            centers = [(edges[i] + edges[i + 1]) / 2 for i in range(len(edges) - 1)]
-            freq_counts = counts.value_counts(sort=False).reindex(counts.cat.categories, fill_value=0)
-            won_entry_odd = results_df.loc[results_df["won"].fillna(False), "entry_odd"].dropna()
-            won_cut = pd.cut(won_entry_odd, bins=edges, include_lowest=True, duplicates="drop")
-            won_counts = won_cut.value_counts(sort=False).reindex(counts.cat.categories, fill_value=0)
-            hist.add_trace(
-                go.Scatter(
-                    x=centers[: len(freq_counts)],
-                    y=freq_counts.values,
-                    mode="lines+markers",
-                    name="Jogos total",
-                    line=dict(color="#f59e0b", width=2),
-                    yaxis="y2",
-                )
-            )
-            hist.add_trace(
-                go.Scatter(
-                    x=centers[: len(won_counts)],
-                    y=won_counts.values,
-                    mode="lines+markers",
-                    name="Jogos vencidos",
-                    line=dict(color="#16a34a", width=2),
-                    yaxis="y2",
-                )
-            )
-            hist.update_layout(
-                yaxis2=dict(overlaying="y", side="right", title="Jogos por faixa"),
-            )
-        hist.update_layout(height=420, margin=dict(l=0, r=0, t=40, b=0), template="plotly_white")
-        st.plotly_chart(hist, width="stretch")
+        st.plotly_chart(odd_chart, width="stretch")
 
     with st.container():
         period_choice = st.selectbox(
@@ -397,17 +471,12 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
         block_df = results_df.copy()
         if getattr(block_df["match_datetime"].dt, "tz", None) is not None:
             block_df["match_datetime"] = block_df["match_datetime"].dt.tz_convert(None)
-        grouped = (
-            block_df.groupby(pd.Grouper(key="match_datetime", freq=freq))
-            .agg(profit=("profit", "sum"), bets=("profit", "size"))
-            .reset_index()
-            .sort_values("match_datetime")
-        )
+        grouped = _build_period_summary(block_df, freq)
         if not grouped.empty:
             fig_blocks = go.Figure()
             fig_blocks.add_trace(
                 go.Bar(
-                    x=grouped["match_datetime"],
+                    x=grouped["period"],
                     y=grouped["profit"],
                     name="Lucro do bloco",
                     marker_color=["#0f766e" if value >= 0 else "#b91c1c" for value in grouped["profit"]],
@@ -415,7 +484,7 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
             )
             fig_blocks.add_trace(
                 go.Scatter(
-                    x=grouped["match_datetime"],
+                    x=grouped["period"],
                     y=grouped["profit"].cumsum(),
                     mode="lines+markers",
                     name="Acumulado por bloco",
@@ -433,10 +502,22 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
             )
             st.subheader(f"Profit por {period_label.lower()}")
             st.plotly_chart(fig_blocks, width="stretch")
-            grouped = grouped.rename(columns={"match_datetime": period_label}).copy()
-            if "profit" in grouped.columns:
-                grouped["profit"] = grouped["profit"].map(format_brl)
-            st.dataframe(grouped, width="stretch", hide_index=True)
+            grouped = grouped.rename(
+                columns={
+                    "period": period_label,
+                    "profit": "Lucro",
+                    "bets": "Bets",
+                    "wins": "Wins",
+                    "winrate": "Winrate %",
+                    "roi": "ROI %",
+                    "drawdown": "Drawdown",
+                }
+            ).copy()
+            grouped["Lucro"] = grouped["Lucro"].map(format_brl)
+            grouped["Drawdown"] = grouped["Drawdown"].map(format_brl)
+            grouped["Winrate %"] = grouped["Winrate %"].map(lambda value: f"{float(value):.2f}%")
+            grouped["ROI %"] = grouped["ROI %"].map(lambda value: f"{float(value):.2f}%")
+            st.dataframe(grouped[[period_label, "Bets", "Wins", "Winrate %", "ROI %", "Drawdown", "Lucro"]], width="stretch", hide_index=True)
 
 
 def render_game_timeline(client: ZeusClient, game_id: str, market_field: str) -> None:
