@@ -25,6 +25,31 @@ class ZeusClientFinalSnapshotTests(unittest.TestCase):
         self.assertEqual(snapshot["GolsVisitante"], 1)
         self.assertEqual(calls[0], (500, 0))
 
+    def test_async_final_snapshot_prefers_true_final_minute_snapshot(self) -> None:
+        client = ZeusClient(auth_token="token")
+        calls: list[tuple[int, int]] = []
+
+        async def fake_fetch_snapshot(game_id: str, minute: int, period: int) -> dict:
+            calls.append((minute, period))
+            if minute == 500 and period == 0:
+                return {"Minuto": 500, "Periodo": 0, "GolsCasa": 2, "GolsVisitante": 1}
+            return {}
+
+        async def fake_fetch_match_detail(game_id: str) -> dict:
+            raise AssertionError("fetch_match_detail should not be used when minute=500 snapshot exists")
+
+        async_client = __import__("types").SimpleNamespace(
+            fetch_snapshot=fake_fetch_snapshot,
+            fetch_match_detail=fake_fetch_match_detail,
+        )
+
+        from src.zeus_client import AsyncZeusClient
+
+        snapshot = __import__("asyncio").run(AsyncZeusClient.fetch_final_snapshot(async_client, "sr:match:demo", final_minute=500))
+        self.assertEqual(snapshot["GolsCasa"], 2)
+        self.assertEqual(snapshot["GolsVisitante"], 1)
+        self.assertEqual(calls[0], (500, 0))
+
 
 if __name__ == "__main__":
     unittest.main()

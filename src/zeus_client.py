@@ -550,9 +550,9 @@ class AsyncZeusClient:
     async def fetch_final_snapshot(self, game_id: str, final_minute: int = 500) -> dict[str, Any]:
         if final_minute == 500:
             try:
-                detail = await self.fetch_match_detail(game_id)
-                if detail:
-                    return detail
+                snapshot = await self.fetch_snapshot(game_id, minute=500, period=0)
+                if snapshot:
+                    return snapshot
             except Exception:
                 pass
             start_period, start_minute = 2, 90
