@@ -676,13 +676,11 @@ def _finalize_backtest(
     result_df = pd.DataFrame(enriched)
     if "status" in result_df.columns:
         result_df = result_df[result_df["status"].eq("ok")].copy()
-    if not result_df.empty and config.final_filter and "final_verification_hit" in result_df.columns:
-        result_df = result_df[result_df["final_verification_hit"].fillna(False)].copy()
     if result_df.empty:
         metrics = {
-            "matches": 0,
+            "matches": strategy_matches,
             "strategy_matches": strategy_matches,
-            "bets": 0,
+            "bets": strategy_matches,
             "wins": 0,
             "win_rate": 0.0,
             "verification_hits": 0,
@@ -707,9 +705,9 @@ def _finalize_backtest(
     total_risked = float(result_df["stake_risked"].sum())
     bets = int(len(result_df))
     wins = int(result_df["won"].fillna(False).sum())
-    verification_hits = int(result_df["final_verification_hit"].fillna(True).sum()) if "final_verification_hit" in result_df.columns else bets
+    verification_hits = int(result_df["final_verification_hit"].fillna(True).sum()) if "final_verification_hit" in result_df.columns else strategy_matches
     metrics = {
-        "matches": bets,
+        "matches": strategy_matches,
         "strategy_matches": strategy_matches,
         "bets": bets,
         "wins": wins,

@@ -173,9 +173,10 @@ class MarketSettlementTests(unittest.TestCase):
         self.assertFalse(result["final_verification_hit"])
         summary = _finalize_backtest([base_row], [result], config)
         self.assertEqual(summary["metrics"]["strategy_matches"], 1)
-        self.assertEqual(summary["metrics"]["matches"], 0)
-        self.assertEqual(summary["metrics"]["bets"], 0)
-        self.assertEqual(len(summary["result_df"]), 0)
+        self.assertEqual(summary["metrics"]["matches"], 1)
+        self.assertEqual(summary["metrics"]["bets"], 1)
+        self.assertEqual(len(summary["result_df"]), 1)
+        self.assertFalse(summary["result_df"].iloc[0]["final_verification_hit"])
 
     def test_final_filter_uses_requested_final_minute_for_all_markets(self) -> None:
         base_row = {
@@ -432,9 +433,10 @@ class MarketSettlementTests(unittest.TestCase):
         self.assertFalse(result["final_verification_hit"])
         summary = _finalize_backtest([base_row], [result], config)
         self.assertEqual(summary["metrics"]["strategy_matches"], 1)
-        self.assertEqual(summary["metrics"]["matches"], 0)
-        self.assertEqual(summary["metrics"]["bets"], 0)
-        self.assertEqual(len(summary["result_df"]), 0)
+        self.assertEqual(summary["metrics"]["matches"], 1)
+        self.assertEqual(summary["metrics"]["bets"], 1)
+        self.assertEqual(len(summary["result_df"]), 1)
+        self.assertFalse(summary["result_df"].iloc[0]["final_verification_hit"])
 
     def test_async_final_filter_uses_requested_final_minute_for_all_markets(self) -> None:
         base_row = {
