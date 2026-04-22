@@ -186,10 +186,12 @@ def format_brl(value: float) -> str:
 
 
 def render_metrics(metrics: dict) -> None:
-    cols = st.columns(4)
+    cols = st.columns(6)
     items = [
         ("Jogos", f"{metrics.get('matches', 0)}"),
         ("Entradas", f"{metrics.get('bets', 0)}"),
+        ("Ganhou", f"{metrics.get('wins', 0)}"),
+        ("Perdeu", f"{metrics.get('losses', max(int(metrics.get('bets', 0)) - int(metrics.get('wins', 0)), 0))}"),
         ("Taxa de acerto", f"{metrics.get('win_rate', 0):.2f}%"),
         ("ROI", f"{metrics.get('roi', 0):.2f}%"),
     ]
@@ -197,7 +199,7 @@ def render_metrics(metrics: dict) -> None:
         with col:
             st.markdown(metric_card(label, value), unsafe_allow_html=True)
 
-    cols = st.columns(4)
+    cols = st.columns(6)
     total_profit = float(metrics.get("total_profit", 0))
     profit_class = "metric-profit-positive" if total_profit >= 0 else "metric-profit-negative"
     items = [
@@ -205,6 +207,8 @@ def render_metrics(metrics: dict) -> None:
         ("Stake", f"{format_brl(float(metrics.get('total_risked', 0)))}"),
         ("Maior perda", f"{format_brl(float(metrics.get('worst_curve', metrics.get('worst_trade', 0))))}"),
         ("Odd média", f"{metrics.get('avg_entry_odd', 0):.2f}"),
+        ("Sequência de vitória", f"{metrics.get('max_win_streak', 0)}"),
+        ("Sequência de derrota", f"{metrics.get('max_loss_streak', 0)}"),
     ]
     for col, item in zip(cols, items, strict=False):
         label, value, *style_class = item

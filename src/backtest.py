@@ -535,6 +535,18 @@ def _normalize_datetime(value: Any) -> pd.Timestamp:
     return dt
 
 
+def _max_consecutive_streak(values: list[bool], target: bool) -> int:
+    best = 0
+    current = 0
+    for value in values:
+        if bool(value) is target:
+            current += 1
+            best = max(best, current)
+        else:
+            current = 0
+    return best
+
+
 def _build_row(
     client: ZeusClient,
     row: dict[str, Any],
@@ -682,6 +694,7 @@ def _finalize_backtest(
             "strategy_matches": strategy_matches,
             "bets": strategy_matches,
             "wins": 0,
+            "losses": 0,
             "win_rate": 0.0,
             "verification_hits": 0,
             "verification_hit_rate": 0.0,
@@ -692,6 +705,8 @@ def _finalize_backtest(
             "worst_trade": 0.0,
             "worst_curve": 0.0,
             "avg_entry_odd": 0.0,
+            "max_win_streak": 0,
+            "max_loss_streak": 0,
         }
         return {"metrics": metrics, "result_df": result_df, "config": config}
 
@@ -705,12 +720,17 @@ def _finalize_backtest(
     total_risked = float(result_df["stake_risked"].sum())
     bets = int(len(result_df))
     wins = int(result_df["won"].fillna(False).sum())
+    losses = int(max(bets - wins, 0))
+    won_sequence = result_df["won"].fillna(False).astype(bool).tolist()
+    max_win_streak = _max_consecutive_streak(won_sequence, True)
+    max_loss_streak = _max_consecutive_streak(won_sequence, False)
     verification_hits = int(result_df["final_verification_hit"].fillna(True).sum()) if "final_verification_hit" in result_df.columns else strategy_matches
     metrics = {
         "matches": strategy_matches,
         "strategy_matches": strategy_matches,
         "bets": bets,
         "wins": wins,
+        "losses": losses,
         "win_rate": (wins / bets * 100.0) if bets else 0.0,
         "verification_hits": verification_hits,
         "verification_hit_rate": (verification_hits / strategy_matches * 100.0) if strategy_matches else 0.0,
@@ -721,6 +741,8 @@ def _finalize_backtest(
         "worst_trade": float(result_df["profit"].min()) if not result_df.empty else 0.0,
         "worst_curve": float(result_df["cumulative_profit"].min()) if not result_df.empty else 0.0,
         "avg_entry_odd": float(result_df["entry_odd"].mean()) if not result_df.empty else 0.0,
+        "max_win_streak": max_win_streak,
+        "max_loss_streak": max_loss_streak,
     }
     return {"metrics": metrics, "result_df": result_df, "config": config}
 
