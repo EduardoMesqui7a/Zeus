@@ -965,15 +965,15 @@ def render_optimization_tab(
             final_start = st.number_input(
                 "Minuto de saída - início",
                 min_value=1,
-                max_value=500,
-                value=max(1, final_default - 10),
+                max_value=90,
+                value=max(1, min(90, final_default - 10)),
                 step=1,
             )
             final_end = st.number_input(
                 "Minuto de saída - fim",
                 min_value=1,
-                max_value=500,
-                value=min(500, final_default + 10),
+                max_value=90,
+                value=min(90, max(1, final_default + 10)),
                 step=1,
             )
             final_step = st.number_input("Minuto de saída - passo", min_value=1, max_value=100, value=1, step=1)
@@ -999,6 +999,8 @@ def render_optimization_tab(
             refine_step = st.number_input("Passo do refino", min_value=1, max_value=20, value=1, step=1)
         with ref_e:
             coarse_limit = st.number_input("Limite da fase ampla", min_value=1, max_value=10000, value=250, step=10)
+
+        include_final_snapshot = st.checkbox("Incluir snapshot final (500)", value=bool(final_default == 500))
 
         submit = st.form_submit_button("Rodar otimização", width="stretch", type="primary")
 
@@ -1091,6 +1093,9 @@ def render_optimization_tab(
         try:
             entry_minutes = build_int_range(int(entry_start), int(entry_end), int(entry_step))
             final_minutes = build_int_range(int(final_start), int(final_end), int(final_step))
+            if include_final_snapshot and 500 not in final_minutes:
+                final_minutes.append(500)
+                final_minutes = sorted(set(final_minutes))
         except ValueError as exc:
             st.error(str(exc))
             return
