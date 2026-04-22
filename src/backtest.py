@@ -684,12 +684,16 @@ def _finalize_backtest(
     enriched: list[dict[str, Any]],
     config: BacktestConfig,
 ) -> dict[str, Any]:
+    strategy_matches = len(rows)
     result_df = pd.DataFrame(enriched)
     if "status" in result_df.columns:
         result_df = result_df[result_df["status"].eq("ok")].copy()
+    if not result_df.empty and config.final_filter and "final_verification_hit" in result_df.columns:
+        result_df = result_df[result_df["final_verification_hit"].fillna(False)].copy()
     if result_df.empty:
         metrics = {
-            "matches": len(rows),
+            "matches": 0,
+            "strategy_matches": strategy_matches,
             "bets": 0,
             "wins": 0,
             "win_rate": 0.0,
@@ -717,12 +721,13 @@ def _finalize_backtest(
     wins = int(result_df["won"].fillna(False).sum())
     verification_hits = int(result_df["final_verification_hit"].fillna(True).sum()) if "final_verification_hit" in result_df.columns else bets
     metrics = {
-        "matches": len(rows),
+        "matches": bets,
+        "strategy_matches": strategy_matches,
         "bets": bets,
         "wins": wins,
         "win_rate": (wins / bets * 100.0) if bets else 0.0,
         "verification_hits": verification_hits,
-        "verification_hit_rate": (verification_hits / bets * 100.0) if bets else 0.0,
+        "verification_hit_rate": (verification_hits / strategy_matches * 100.0) if strategy_matches else 0.0,
         "roi": (total_profit / total_risked * 100.0) if total_risked else 0.0,
         "total_profit": total_profit,
         "total_risked": total_risked,

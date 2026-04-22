@@ -507,8 +507,9 @@ def render_report_view(report: dict, token: str, market_label: str, base_query: 
     render_metrics(report["backtest"]["metrics"])
     verification_hits = int(report["backtest"]["metrics"].get("verification_hits", 0) or 0)
     matches = int(report["backtest"]["metrics"].get("matches", 0) or 0)
-    if matches:
-        st.caption(f"Verificação final: {verification_hits}/{matches} jogos ({(verification_hits / matches) * 100.0:.2f}%)")
+    strategy_matches = int(report["backtest"]["metrics"].get("strategy_matches", matches) or matches)
+    if strategy_matches:
+        st.caption(f"Verificação final: {verification_hits}/{strategy_matches} jogos ({(verification_hits / strategy_matches) * 100.0:.2f}%)")
     render_charts(report["backtest"]["result_df"], block_period=st.session_state.get("zeus_profit_period", "Mensal"))
 
     st.subheader("Resultados")
@@ -928,7 +929,7 @@ def render_optimization_tab(
             "combo_limit": int(combo_limit),
             "base_query": base_query,
             "final_filter": final_filter,
-            "manual_games": len(lucy_rows),
+            "manual_games": int((manual_metrics or {}).get("matches", len(lucy_rows)) or len(lucy_rows)),
             "manual_profit": float((manual_metrics or {}).get("total_profit", 0.0)),
             "manual_bets": int((manual_metrics or {}).get("bets", 0) or 0),
         }

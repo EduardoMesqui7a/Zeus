@@ -172,8 +172,10 @@ class MarketSettlementTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertFalse(result["final_verification_hit"])
         summary = _finalize_backtest([base_row], [result], config)
-        self.assertEqual(summary["metrics"]["bets"], 1)
-        self.assertEqual(summary["metrics"]["wins"], 0)
+        self.assertEqual(summary["metrics"]["strategy_matches"], 1)
+        self.assertEqual(summary["metrics"]["matches"], 0)
+        self.assertEqual(summary["metrics"]["bets"], 0)
+        self.assertEqual(len(summary["result_df"]), 0)
 
     def test_final_filter_period_two_uses_explicit_second_half_minute(self) -> None:
         base_row = {
@@ -395,8 +397,10 @@ class MarketSettlementTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertFalse(result["final_verification_hit"])
         summary = _finalize_backtest([base_row], [result], config)
-        self.assertEqual(summary["metrics"]["bets"], 1)
-        self.assertEqual(summary["metrics"]["wins"], 0)
+        self.assertEqual(summary["metrics"]["strategy_matches"], 1)
+        self.assertEqual(summary["metrics"]["matches"], 0)
+        self.assertEqual(summary["metrics"]["bets"], 0)
+        self.assertEqual(len(summary["result_df"]), 0)
 
     def test_async_back_under_half_ht_uses_final_snapshot_at_settlement_minute(self) -> None:
         base_row = {
