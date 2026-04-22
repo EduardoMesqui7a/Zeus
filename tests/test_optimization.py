@@ -1,6 +1,15 @@
 import unittest
 
-from src.optimization import add_date_filter, build_int_range, candidate_product, sort_optimization_records, split_query_variants
+from src.optimization import (
+    add_date_filter,
+    build_int_range,
+    build_minute_candidate_grid,
+    candidate_product,
+    expand_minute_candidates_around,
+    rank_strategy_candidates,
+    sort_optimization_records,
+    split_query_variants,
+)
 
 
 class OptimizationHelpersTests(unittest.TestCase):
@@ -23,6 +32,41 @@ class OptimizationHelpersTests(unittest.TestCase):
         self.assertEqual(len(combos), 4)
         self.assertEqual(combos[0]['entry_minute'], 1)
         self.assertEqual(combos[-1]['final_minute'], 10)
+
+    def test_build_minute_candidate_grid_builds_pairs(self) -> None:
+        combos = build_minute_candidate_grid([30, 35], [44, 45])
+        self.assertEqual(
+            combos,
+            [
+                {'entry_minute': 30, 'final_minute': 44},
+                {'entry_minute': 30, 'final_minute': 45},
+                {'entry_minute': 35, 'final_minute': 44},
+                {'entry_minute': 35, 'final_minute': 45},
+            ],
+        )
+
+    def test_expand_minute_candidates_around_refines_seed(self) -> None:
+        refined = expand_minute_candidates_around(
+            [{'entry_minute': 35, 'final_minute': 45}],
+            entry_radius=1,
+            final_radius=1,
+            entry_step=1,
+            final_step=1,
+        )
+        self.assertIn({'entry_minute': 34, 'final_minute': 44}, refined)
+        self.assertIn({'entry_minute': 35, 'final_minute': 45}, refined)
+        self.assertIn({'entry_minute': 36, 'final_minute': 46}, refined)
+
+    def test_rank_strategy_candidates_filters_volume_and_orders_profit(self) -> None:
+        records = [
+            {'profit': 40, 'roi': 2, 'win_rate': 55, 'drawdown': -10, 'bets': 10},
+            {'profit': 60, 'roi': 1, 'win_rate': 50, 'drawdown': -15, 'bets': 5},
+            {'profit': 70, 'roi': 3, 'win_rate': 60, 'drawdown': -5, 'bets': 10},
+        ]
+        ordered = rank_strategy_candidates(records, base_bets=10, min_bets=10, min_volume_ratio=100)
+        self.assertEqual(len(ordered), 2)
+        self.assertEqual([record['profit'] for record in ordered], [70, 40])
+        self.assertEqual([record['volume_ratio'] for record in ordered], [100.0, 100.0])
 
     def test_sort_optimization_records_prefers_profit(self) -> None:
         records = [

@@ -373,3 +373,95 @@ def sort_optimization_records(records: list[dict[str, Any]], validation_availabl
         key=lambda record: tuple(_metric(record, key) for key in sort_keys),
         reverse=True,
     )
+
+
+def build_minute_candidate_grid(entry_minutes: Sequence[int], final_minutes: Sequence[int]) -> list[dict[str, int]]:
+    grid: list[dict[str, int]] = []
+    for entry_minute, final_minute in product(entry_minutes or [0], final_minutes or [500]):
+        grid.append(
+            {
+                "entry_minute": int(entry_minute),
+                "final_minute": int(final_minute),
+            }
+        )
+    return grid
+
+
+def deduplicate_minute_candidates(candidates: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[int, int]] = set()
+    unique: list[dict[str, Any]] = []
+    for candidate in candidates:
+        entry_minute = int(candidate.get("entry_minute") or 0)
+        final_minute = int(candidate.get("final_minute") or 500)
+        key = (entry_minute, final_minute)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(
+            {
+                **candidate,
+                "entry_minute": entry_minute,
+                "final_minute": final_minute,
+            }
+        )
+    return unique
+
+
+def expand_minute_candidates_around(
+    top_candidates: Sequence[dict[str, Any]],
+    *,
+    entry_radius: int,
+    final_radius: int,
+    entry_step: int = 1,
+    final_step: int = 1,
+    min_minute: int = 1,
+    max_minute: int = 500,
+) -> list[dict[str, int]]:
+    expanded: list[dict[str, int]] = []
+    for candidate in top_candidates:
+        entry_minute = int(candidate.get("entry_minute") or 0)
+        final_minute = int(candidate.get("final_minute") or 500)
+        entry_start = max(min_minute, entry_minute - max(0, int(entry_radius)))
+        entry_end = min(max_minute, entry_minute + max(0, int(entry_radius)))
+        final_start = max(min_minute, final_minute - max(0, int(final_radius)))
+        final_end = min(max_minute, final_minute + max(0, int(final_radius)))
+        entry_values = build_int_range(entry_start, entry_end, max(1, int(entry_step)))
+        final_values = build_int_range(final_start, final_end, max(1, int(final_step)))
+        expanded.extend(build_minute_candidate_grid(entry_values, final_values))
+    return deduplicate_minute_candidates(expanded)
+
+
+def rank_strategy_candidates(
+    records: Sequence[dict[str, Any]],
+    *,
+    base_bets: int | None = None,
+    min_bets: int = 0,
+    min_volume_ratio: float = 0.0,
+) -> list[dict[str, Any]]:
+    usable: list[dict[str, Any]] = []
+    base_bets_value = max(int(base_bets or 0), 0)
+    min_volume_ratio_value = max(float(min_volume_ratio or 0.0), 0.0)
+
+    for record in records:
+        bets = int(record.get("bets") or 0)
+        if bets < int(min_bets):
+            continue
+        volume_ratio = (bets / base_bets_value * 100.0) if base_bets_value else 0.0
+        if base_bets_value and (volume_ratio < min_volume_ratio_value):
+            continue
+        enriched = dict(record)
+        enriched["volume_ratio"] = volume_ratio
+        enriched["profit_per_bet"] = (float(record.get("profit") or 0.0) / bets) if bets else 0.0
+        usable.append(enriched)
+
+    return sorted(
+        usable,
+        key=lambda record: (
+            float(record.get("profit") or 0.0),
+            float(record.get("volume_ratio") or 0.0),
+            float(record.get("roi") or 0.0),
+            float(record.get("win_rate") or 0.0),
+            float(record.get("drawdown") or 0.0),
+        ),
+        reverse=True,
+    )

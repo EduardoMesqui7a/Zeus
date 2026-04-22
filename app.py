@@ -21,7 +21,9 @@ from src.backtest import (
 )
 from src.optimization import (
     build_int_range,
-    sort_optimization_records,
+    build_minute_candidate_grid,
+    expand_minute_candidates_around,
+    rank_strategy_candidates,
 )
 from src.query_parser import (
     extract_minute_refs,
@@ -846,8 +848,11 @@ def render_optimization_tab(
     manual_report: dict | None,
     manual_inputs: dict | None,
 ) -> None:
-    st.subheader("Otimiza??o")
-    st.caption("A base ? sempre a ?ltima pesquisa carregada no Backtest manual. Aqui a gente s? varia os minutos de entrada e sa?da.")
+    st.subheader("Otimização de estratégia")
+    st.caption(
+        "A base vem sempre do backtest manual. A busca roda em duas fases: varredura ampla e refinamento local. "
+        "O ranking prioriza lucro, mas só aceita combinações que preservem volume."
+    )
 
     manual_report = manual_report if isinstance(manual_report, dict) else {}
     manual_inputs = manual_inputs if isinstance(manual_inputs, dict) else {}
@@ -857,7 +862,7 @@ def render_optimization_tab(
     manual_config = backtest_bundle.get("config")
 
     if not lucy_rows:
-        st.info("Execute um backtest manual primeiro. A otimiza??o usa exatamente os mesmos jogos j? carregados ali.")
+        st.info("Execute um backtest manual primeiro. A otimização usa exatamente os mesmos jogos carregados ali.")
         return
 
     base_query = str(manual_inputs.get("base_query") or "").strip()
@@ -868,11 +873,16 @@ def render_optimization_tab(
     verification_filter_value = str(getattr(manual_config, "final_filter", "") or "")
     entry_default = int(manual_inputs.get("entry_minute") or getattr(manual_config, "entry_minute", 20) or 20)
     final_default = int(manual_inputs.get("final_minute") or getattr(manual_config, "final_minute", 500) or 500)
+    base_bets = int((manual_metrics or {}).get("bets") or (manual_metrics or {}).get("matches") or len(lucy_rows) or 0)
+    base_profit = float((manual_metrics or {}).get("total_profit", 0.0))
+    base_roi = float((manual_metrics or {}).get("roi", 0.0))
+    base_drawdown = float((manual_metrics or {}).get("max_drawdown", 0.0))
+    base_win_rate = float((manual_metrics or {}).get("win_rate", 0.0))
 
     top_left, top_right = st.columns(2)
     with top_left:
         st.markdown("#### Base carregada")
-        st.code(base_query or "(consulta n?o dispon?vel)", language="text")
+        st.code(base_query or "(consulta não disponível)", language="text")
         if final_filter:
             st.code(final_filter, language="text")
     with top_right:
@@ -882,15 +892,15 @@ def render_optimization_tab(
             st.metric("Jogos base", len(lucy_rows))
             st.metric("Mercado", market_label or "n/a")
         with summary_cols[1]:
-            st.metric("Profit", f"R$ {float((manual_metrics or {}).get('total_profit', 0.0)):.2f}")
-            st.metric("Bets", int((manual_metrics or {}).get("bets", 0) or 0))
+            st.metric("Profit", f"R$ {base_profit:.2f}")
+            st.metric("Bets", base_bets)
 
     with st.form("zeus_optimization_form", clear_on_submit=False):
-        st.markdown("#### Varia??o de minutos")
+        st.markdown("#### Busca ampla")
         col_left, col_right = st.columns(2)
         with col_left:
             entry_start = st.number_input(
-                "Minuto de entrada - in?cio",
+                "Minuto de entrada - início",
                 min_value=1,
                 max_value=500,
                 value=max(1, entry_default - 10),
@@ -906,32 +916,129 @@ def render_optimization_tab(
             entry_step = st.number_input("Minuto de entrada - passo", min_value=1, max_value=100, value=1, step=1)
         with col_right:
             final_start = st.number_input(
-                "Minuto de sa?da - in?cio",
+                "Minuto de saída - início",
                 min_value=1,
                 max_value=500,
                 value=max(1, final_default - 10),
                 step=1,
             )
             final_end = st.number_input(
-                "Minuto de sa?da - fim",
+                "Minuto de saída - fim",
                 min_value=1,
                 max_value=500,
                 value=min(500, final_default + 10),
                 step=1,
             )
-            final_step = st.number_input("Minuto de sa?da - passo", min_value=1, max_value=100, value=1, step=1)
+            final_step = st.number_input("Minuto de saída - passo", min_value=1, max_value=100, value=1, step=1)
 
+        st.markdown("#### Filtro de volume")
         col_a, col_b = st.columns(2)
         with col_a:
-            min_bets = st.number_input("M?nimo de bets", min_value=1, value=20, step=1)
+            min_bets = st.number_input("Mínimo de bets", min_value=1, value=max(1, base_bets), step=1)
         with col_b:
-            combo_limit = st.number_input("Limite de combina??es", min_value=1, value=200, step=10)
+            min_volume_ratio = st.number_input("Volume mínimo (%)", min_value=0.0, max_value=100.0, value=100.0, step=1.0)
 
-        submit = st.form_submit_button("Rodar otimiza??o", width="stretch", type="primary")
+        st.markdown("#### Refinamento local")
+        ref_a, ref_b, ref_c = st.columns(3)
+        with ref_a:
+            refine_enabled = st.checkbox("Refinar melhores combinações", value=True)
+        with ref_b:
+            refine_top_n = st.number_input("Top N para refino", min_value=1, max_value=50, value=5, step=1)
+        with ref_c:
+            refine_radius = st.number_input("Raio do refino", min_value=0, max_value=20, value=2, step=1)
+
+        ref_d, ref_e = st.columns(2)
+        with ref_d:
+            refine_step = st.number_input("Passo do refino", min_value=1, max_value=20, value=1, step=1)
+        with ref_e:
+            coarse_limit = st.number_input("Limite da fase ampla", min_value=1, max_value=10000, value=250, step=10)
+
+        submit = st.form_submit_button("Rodar otimização", width="stretch", type="primary")
+
+    def _build_effective_final_filter(target_final_minute: int) -> str:
+        if not verification_filter_value.strip():
+            return ""
+        source_minute = infer_final_minute(verification_filter_value)
+        target_period = infer_snapshot_period(verification_filter_value, source_minute)
+        return rewrite_query_period_refs(
+            rewrite_query_minute_refs(verification_filter_value, source_minute, target_final_minute),
+            target_period,
+        )
+
+    async def _evaluate_candidates(
+        async_client: AsyncZeusClient,
+        candidates: list[dict[str, int]],
+        *,
+        phase_label: str,
+        phase_title: str,
+        existing_keys: set[tuple[int, int]],
+    ) -> list[dict[str, object]]:
+        records: list[dict[str, object]] = []
+        total = max(len(candidates), 1)
+        progress = st.progress(0.0)
+        status = st.empty()
+
+        for index, combo in enumerate(candidates, start=1):
+            key = (int(combo["entry_minute"]), int(combo["final_minute"]))
+            if key in existing_keys:
+                progress.progress(index / total)
+                continue
+
+            status.write(
+                f"{phase_title} {index}/{len(candidates)} · entrada {combo['entry_minute']} · saída {combo['final_minute']}"
+            )
+            try:
+                report = await run_backtest_async(
+                    async_client,
+                    list(lucy_rows),
+                    BacktestConfig(
+                        market_label=market_label,
+                        stake=float(stake_value),
+                        commission=float(commission_value),
+                        entry_minute=int(combo["entry_minute"]),
+                        final_minute=int(combo["final_minute"]),
+                        final_filter=_build_effective_final_filter(int(combo["final_minute"])),
+                    ),
+                )
+                metrics = report["metrics"]
+                record = {
+                    "phase": phase_label,
+                    "entry_minute": int(combo["entry_minute"]),
+                    "final_minute": int(combo["final_minute"]),
+                    "bets": int(metrics.get("bets", 0) or 0),
+                    "wins": int(metrics.get("wins", 0) or 0),
+                    "win_rate": float(metrics.get("win_rate", 0.0) or 0.0),
+                    "profit": float(metrics.get("total_profit", 0.0) or 0.0),
+                    "roi": float(metrics.get("roi", 0.0) or 0.0),
+                    "drawdown": float(metrics.get("max_drawdown", 0.0) or 0.0),
+                    "avg_entry_odd": float(metrics.get("avg_entry_odd", 0.0) or 0.0),
+                    "status": "ok",
+                }
+            except Exception as exc:
+                record = {
+                    "phase": phase_label,
+                    "entry_minute": int(combo["entry_minute"]),
+                    "final_minute": int(combo["final_minute"]),
+                    "bets": 0,
+                    "wins": 0,
+                    "win_rate": 0.0,
+                    "profit": 0.0,
+                    "roi": 0.0,
+                    "drawdown": 0.0,
+                    "avg_entry_odd": 0.0,
+                    "status": f"erro: {exc}",
+                }
+
+            records.append(record)
+            existing_keys.add(key)
+            progress.progress(index / total)
+
+        progress.progress(1.0)
+        return records
 
     if submit:
         if not token.strip():
-            st.error("Entre com email/senha acima ou informe um token opcional antes de rodar a otimiza??o.")
+            st.error("Entre com email/senha acima ou informe um token opcional antes de rodar a otimização.")
             return
 
         try:
@@ -941,22 +1048,21 @@ def render_optimization_tab(
             st.error(str(exc))
             return
 
-        combos = [
-            {"entry_minute": entry_minute, "final_minute": final_minute}
-            for entry_minute, final_minute in ((entry, final) for entry in entry_minutes for final in final_minutes)
-        ]
-        if not combos:
-            st.error("Nenhuma combina??o foi gerada. Verifique os intervalos dos minutos.")
+        coarse_candidates = build_minute_candidate_grid(entry_minutes, final_minutes)
+        if not coarse_candidates:
+            st.error("Nenhuma combinação foi gerada. Verifique os intervalos dos minutos.")
             return
-        if len(combos) > int(combo_limit):
-            st.warning(f"Foram geradas {len(combos)} combina??es; vou executar apenas as primeiras {int(combo_limit)}.")
-            combos = combos[: int(combo_limit)]
+        if len(coarse_candidates) > int(coarse_limit):
+            st.warning(
+                f"Foram geradas {len(coarse_candidates)} combinações na fase ampla; vou executar apenas as primeiras {int(coarse_limit)}."
+            )
+            coarse_candidates = coarse_candidates[: int(coarse_limit)]
 
-        async def _run_optimization_search() -> pd.DataFrame:
-            rows_cache = list(lucy_rows)
-            records: list[dict[str, object]] = []
-            progress = st.progress(0)
-            status = st.empty()
+        async def _run_optimization_search() -> dict[str, object]:
+            records_by_key: dict[tuple[int, int], dict[str, object]] = {}
+            coarse_records: list[dict[str, object]] = []
+            refined_records: list[dict[str, object]] = []
+            existing_keys: set[tuple[int, int]] = set()
 
             async with AsyncZeusClient(auth_token=token) as async_client:
                 async_client.config = replace(
@@ -967,94 +1073,118 @@ def render_optimization_tab(
                     max_keepalive_connections=max(async_client.config.max_keepalive_connections, 32),
                 )
 
-                for index, combo in enumerate(combos, start=1):
-                    status.write(f"Executando {index}/{len(combos)} ? entrada {combo['entry_minute']} / sa?da {combo['final_minute']}")
-                    try:
-                        report = await run_backtest_async(
+                coarse_records = await _evaluate_candidates(
+                    async_client,
+                    coarse_candidates,
+                    phase_label="fase_ampla",
+                    phase_title="Fase ampla",
+                    existing_keys=existing_keys,
+                )
+                for record in coarse_records:
+                    key = (int(record["entry_minute"]), int(record["final_minute"]))
+                    records_by_key[key] = record
+
+                coarse_ranked = rank_strategy_candidates(
+                    coarse_records,
+                    base_bets=base_bets,
+                    min_bets=int(min_bets),
+                    min_volume_ratio=float(min_volume_ratio),
+                )
+
+                if refine_enabled and coarse_ranked:
+                    seed_candidates = coarse_ranked[: int(refine_top_n)]
+                    refinement_candidates = expand_minute_candidates_around(
+                        seed_candidates,
+                        entry_radius=int(refine_radius),
+                        final_radius=int(refine_radius),
+                        entry_step=int(refine_step),
+                        final_step=int(refine_step),
+                    )
+                    refinement_candidates = [
+                        candidate
+                        for candidate in refinement_candidates
+                        if (int(candidate["entry_minute"]), int(candidate["final_minute"])) not in records_by_key
+                    ]
+                    if refinement_candidates:
+                        refined_records = await _evaluate_candidates(
                             async_client,
-                            rows_cache,
-                            BacktestConfig(
-                                market_label=market_label,
-                                stake=float(stake_value),
-                                commission=float(commission_value),
-                                entry_minute=int(combo["entry_minute"]),
-                                final_minute=int(combo["final_minute"]),
-                                final_filter=rewrite_query_period_refs(
-                                    rewrite_query_minute_refs(
-                                        verification_filter_value,
-                                        infer_final_minute(verification_filter_value),
-                                        int(combo["final_minute"]),
-                                    ),
-                                    infer_snapshot_period(
-                                        verification_filter_value,
-                                        infer_final_minute(verification_filter_value),
-                                    ),
-                                ),
-                            ),
+                            refinement_candidates,
+                            phase_label="fase_refino",
+                            phase_title="Fase de refino",
+                            existing_keys=existing_keys,
                         )
-                        metrics = report["metrics"]
-                        records.append(
-                            {
-                                "entry_minute": int(combo["entry_minute"]),
-                                "final_minute": int(combo["final_minute"]),
-                                "bets": metrics.get("bets", 0),
-                                "wins": metrics.get("wins", 0),
-                                "win_rate": metrics.get("win_rate", 0.0),
-                                "profit": metrics.get("total_profit", 0.0),
-                                "roi": metrics.get("roi", 0.0),
-                                "drawdown": metrics.get("worst_curve", 0.0),
-                                "avg_entry_odd": metrics.get("avg_entry_odd", 0.0),
-                                "status": "ok",
-                            }
-                        )
-                    except Exception as exc:
-                        records.append(
-                            {
-                                "entry_minute": int(combo["entry_minute"]),
-                                "final_minute": int(combo["final_minute"]),
-                                "bets": 0,
-                                "wins": 0,
-                                "win_rate": 0.0,
-                                "profit": 0.0,
-                                "roi": 0.0,
-                                "drawdown": 0.0,
-                                "avg_entry_odd": 0.0,
-                                "status": f"erro: {exc}",
-                            }
-                        )
-                    progress.progress(index / len(combos))
+                        for record in refined_records:
+                            key = (int(record["entry_minute"]), int(record["final_minute"]))
+                            records_by_key[key] = record
 
-            df = pd.DataFrame(records)
-            valid_df = df.loc[df["bets"].fillna(0).astype(float) >= float(min_bets)].copy()
-            ordered_records = sort_optimization_records(valid_df.to_dict("records"), validation_available=False)
-            return pd.DataFrame(ordered_records)
+            combined_records = list(records_by_key.values())
+            ranked_records = rank_strategy_candidates(
+                combined_records,
+                base_bets=base_bets,
+                min_bets=int(min_bets),
+                min_volume_ratio=float(min_volume_ratio),
+            )
+            ranking_df = pd.DataFrame(ranked_records)
+            coarse_df = pd.DataFrame(coarse_records)
+            refined_df = pd.DataFrame(refined_records)
 
-        ranking_df = _run_async(_run_optimization_search())
-        st.session_state["zeus_optimization_results"] = {
-            "ranking_df": ranking_df,
-            "market_label": market_label,
-            "combo_limit": int(combo_limit),
-            "base_query": base_query,
-            "final_filter": final_filter,
-            "manual_games": int((manual_metrics or {}).get("matches", len(lucy_rows)) or len(lucy_rows)),
-            "manual_profit": float((manual_metrics or {}).get("total_profit", 0.0)),
-            "manual_bets": int((manual_metrics or {}).get("bets", 0) or 0),
-        }
-        st.success("Otimiza??o conclu?da.")
+            return {
+                "ranking_df": ranking_df,
+                "coarse_df": coarse_df,
+                "refined_df": refined_df,
+                "market_label": market_label,
+                "base_query": base_query,
+                "final_filter": final_filter,
+                "manual_games": len(lucy_rows),
+                "manual_profit": base_profit,
+                "manual_bets": base_bets,
+                "manual_roi": base_roi,
+                "manual_drawdown": base_drawdown,
+                "manual_win_rate": base_win_rate,
+                "min_bets": int(min_bets),
+                "min_volume_ratio": float(min_volume_ratio),
+                "refine_enabled": bool(refine_enabled),
+                "refine_top_n": int(refine_top_n),
+                "refine_radius": int(refine_radius),
+                "coarse_limit": int(coarse_limit),
+                "coarse_candidates": len(coarse_candidates),
+                "refinement_candidates": len(refined_records),
+            }
+
+        optimization_results = _run_async(_run_optimization_search())
+        st.session_state["zeus_optimization_results"] = optimization_results
+        st.success("Otimização concluída.")
 
     results = st.session_state.get("zeus_optimization_results")
     if not results:
-        st.info("Configure os minutos acima e rode a otimiza??o para ver o ranking.")
+        st.info("Configure a busca e rode a otimização para ver o ranking.")
         return
 
     ranking_df = results.get("ranking_df") if isinstance(results, dict) else None
     if not isinstance(ranking_df, pd.DataFrame) or ranking_df.empty:
-        st.warning("A otimiza??o n?o encontrou combina??es v?lidas suficientes para ranquear.")
+        st.warning("A otimização não encontrou combinações válidas suficientes para ranquear.")
         return
+
+    st.subheader("Resumo da busca")
+    summary_cols = st.columns(4)
+    with summary_cols[0]:
+        st.metric("Base manual", int(results.get("manual_bets", 0) or 0))
+        st.metric("Base jogos", int(results.get("manual_games", 0) or 0))
+    with summary_cols[1]:
+        st.metric("Profit manual", f"R$ {float(results.get('manual_profit', 0.0)):.2f}")
+        st.metric("ROI manual", f"{float(results.get('manual_roi', 0.0)):.2f}%")
+    with summary_cols[2]:
+        st.metric("Volume mínimo", f"{float(results.get('min_volume_ratio', 0.0)):.0f}%")
+        st.metric("Bets mínimos", int(results.get("min_bets", 0) or 0))
+    with summary_cols[3]:
+        st.metric("Fase ampla", int(results.get("coarse_candidates", 0) or 0))
+        st.metric("Fase refino", int(results.get("refinement_candidates", 0) or 0))
 
     st.subheader("Ranking")
     available_columns = [
-        column for column in [
+        column
+        for column in [
+            "phase",
             "entry_minute",
             "final_minute",
             "bets",
@@ -1063,6 +1193,7 @@ def render_optimization_tab(
             "profit",
             "roi",
             "drawdown",
+            "volume_ratio",
             "avg_entry_odd",
             "status",
         ]
@@ -1071,13 +1202,34 @@ def render_optimization_tab(
     st.dataframe(ranking_df[available_columns].head(50), width="stretch", hide_index=True)
 
     best_row = ranking_df.iloc[0].to_dict()
-    st.subheader("Melhor combina??o")
+    best_profit = float(best_row.get("profit") or 0.0)
+    best_roi = float(best_row.get("roi") or 0.0)
+    best_bets = int(best_row.get("bets") or 0)
+    best_volume_ratio = float(best_row.get("volume_ratio") or 0.0)
+    st.subheader("Melhor combinação")
     st.write(
-        f"Entrada {best_row.get('entry_minute')} | Sa?da {best_row.get('final_minute')} | "
-        f"Profit R$ {float(best_row.get('profit') or 0.0):.2f} | "
-        f"ROI {float(best_row.get('roi') or 0.0):.2f}%"
+        f"Entrada {best_row.get('entry_minute')} | Saída {best_row.get('final_minute')} | "
+        f"Profit R$ {best_profit:.2f} | ROI {best_roi:.2f}% | Bets {best_bets}"
     )
-    st.caption(f"A base ? a mesma do backtest manual: {results.get('manual_games', 0)} jogos carregados.")
+    st.caption(
+        f"Volume preservado: {best_volume_ratio:.2f}% da base manual. "
+        f"Delta de profit vs manual: R$ {(best_profit - float(results.get('manual_profit', 0.0))):.2f}"
+    )
+
+    with st.expander("Ver fases da busca"):
+        col_phase1, col_phase2 = st.columns(2)
+        with col_phase1:
+            st.markdown("#### Fase ampla")
+            st.write(f"{int(results.get('coarse_candidates', 0) or 0)} combinações avaliadas")
+            coarse_df = results.get("coarse_df") if isinstance(results, dict) else None
+            if isinstance(coarse_df, pd.DataFrame) and not coarse_df.empty:
+                st.dataframe(coarse_df.head(20), width="stretch", hide_index=True)
+        with col_phase2:
+            st.markdown("#### Fase de refino")
+            st.write(f"{int(results.get('refinement_candidates', 0) or 0)} combinações avaliadas")
+            refined_df = results.get("refined_df") if isinstance(results, dict) else None
+            if isinstance(refined_df, pd.DataFrame) and not refined_df.empty:
+                st.dataframe(refined_df.head(20), width="stretch", hide_index=True)
 
     csv_data = ranking_df.to_csv(index=False).encode("utf-8")
     json_data = json.dumps(
@@ -1086,10 +1238,15 @@ def render_optimization_tab(
             "ranking": ranking_df.to_dict(orient="records"),
             "summary": {
                 "market_label": results.get("market_label"),
-                "combo_limit": results.get("combo_limit"),
                 "base_query": results.get("base_query"),
                 "final_filter": results.get("final_filter"),
                 "manual_games": results.get("manual_games"),
+                "manual_bets": results.get("manual_bets"),
+                "manual_profit": results.get("manual_profit"),
+                "manual_roi": results.get("manual_roi"),
+                "manual_drawdown": results.get("manual_drawdown"),
+                "min_bets": results.get("min_bets"),
+                "min_volume_ratio": results.get("min_volume_ratio"),
             },
         },
         ensure_ascii=False,
@@ -1097,7 +1254,7 @@ def render_optimization_tab(
         default=str,
     ).encode("utf-8")
     st.download_button("Baixar ranking CSV", data=csv_data, file_name="zeus_optimization_ranking.csv", mime="text/csv")
-    st.download_button("Baixar melhor estrat?gia JSON", data=json_data, file_name="zeus_best_strategy.json", mime="application/json")
+    st.download_button("Baixar melhor estratégia JSON", data=json_data, file_name="zeus_best_strategy.json", mime="application/json")
 
 
 def main() -> None:
