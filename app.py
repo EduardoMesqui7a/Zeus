@@ -19,12 +19,7 @@ from src.backtest import (
     BacktestConfig,
     run_backtest_async,
 )
-from src.optimization import (
-    build_int_range,
-    build_minute_candidate_grid,
-    expand_minute_candidates_around,
-    rank_strategy_candidates,
-)
+from src import optimization as optimization_mod
 from src.query_parser import (
     extract_minute_refs,
     infer_entry_minute,
@@ -35,6 +30,58 @@ from src.query_parser import (
 )
 from src.session_store import clear_saved_session, load_saved_session, save_token
 from src.zeus_client import AsyncZeusClient, ZeusClient, ZeusClientError
+
+
+build_int_range = optimization_mod.build_int_range
+
+
+def build_minute_candidate_grid(entry_minutes, final_minutes):
+    if hasattr(optimization_mod, "build_minute_candidate_grid"):
+        return optimization_mod.build_minute_candidate_grid(entry_minutes, final_minutes)
+    grid: list[dict[str, int]] = []
+    for entry_minute in entry_minutes or [0]:
+        for final_minute in final_minutes or [500]:
+            grid.append({"entry_minute": int(entry_minute), "final_minute": int(final_minute)})
+    return grid
+
+
+def expand_minute_candidates_around(*args, **kwargs):
+    if hasattr(optimization_mod, "expand_minute_candidates_around"):
+        return optimization_mod.expand_minute_candidates_around(*args, **kwargs)
+    return []
+
+
+def rank_strategy_candidates(records, *, base_bets=None, min_bets=0, min_volume_ratio=0.0):
+    if hasattr(optimization_mod, "rank_strategy_candidates"):
+        return optimization_mod.rank_strategy_candidates(
+            records,
+            base_bets=base_bets,
+            min_bets=min_bets,
+            min_volume_ratio=min_volume_ratio,
+        )
+    usable = []
+    base_bets_value = max(int(base_bets or 0), 0)
+    for record in records:
+        bets = int(record.get("bets") or 0)
+        if bets < int(min_bets):
+            continue
+        volume_ratio = (bets / base_bets_value * 100.0) if base_bets_value else 0.0
+        if base_bets_value and volume_ratio < float(min_volume_ratio or 0.0):
+            continue
+        enriched = dict(record)
+        enriched["volume_ratio"] = volume_ratio
+        usable.append(enriched)
+    return sorted(
+        usable,
+        key=lambda record: (
+            float(record.get("profit") or 0.0),
+            float(record.get("volume_ratio") or 0.0),
+            float(record.get("roi") or 0.0),
+            float(record.get("win_rate") or 0.0),
+            float(record.get("drawdown") or 0.0),
+        ),
+        reverse=True,
+    )
 
 
 SAFE_M500_FIELDS = {
