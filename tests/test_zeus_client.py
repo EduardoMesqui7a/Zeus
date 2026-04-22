@@ -1,0 +1,30 @@
+import unittest
+
+from src.zeus_client import ZeusClient
+
+
+class ZeusClientFinalSnapshotTests(unittest.TestCase):
+    def test_final_snapshot_prefers_true_final_minute_snapshot(self) -> None:
+        client = ZeusClient(auth_token="token")
+        calls: list[tuple[int, int]] = []
+
+        def fake_fetch_snapshot(game_id: str, minute: int, period: int) -> dict:
+            calls.append((minute, period))
+            if minute == 500 and period == 0:
+                return {"Minuto": 500, "Periodo": 0, "GolsCasa": 2, "GolsVisitante": 1}
+            return {}
+
+        def fake_fetch_match_detail(game_id: str) -> dict:
+            raise AssertionError("fetch_match_detail should not be used when minute=500 snapshot exists")
+
+        client.fetch_snapshot = fake_fetch_snapshot  # type: ignore[method-assign]
+        client.fetch_match_detail = fake_fetch_match_detail  # type: ignore[method-assign]
+
+        snapshot = client.fetch_final_snapshot("sr:match:demo", final_minute=500)
+        self.assertEqual(snapshot["GolsCasa"], 2)
+        self.assertEqual(snapshot["GolsVisitante"], 1)
+        self.assertEqual(calls[0], (500, 0))
+
+
+if __name__ == "__main__":
+    unittest.main()
