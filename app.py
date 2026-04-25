@@ -430,6 +430,32 @@ def _build_period_summary(block_df: pd.DataFrame, freq: str) -> pd.DataFrame:
     return summary.sort_values("period").reset_index(drop=True)
 
 
+def _build_league_summary(results_df: pd.DataFrame) -> pd.DataFrame:
+    if results_df.empty or "league" not in results_df.columns:
+        return pd.DataFrame()
+
+    league_frame = results_df.copy()
+    league_frame["league"] = league_frame["league"].fillna("Sem campeonato").astype(str).str.strip()
+    league_frame.loc[league_frame["league"] == "", "league"] = "Sem campeonato"
+    league_group = (
+        league_frame.groupby("league", dropna=False)
+        .agg(
+            bets=("league", "size"),
+            wins=("won", lambda series: int(pd.Series(series).fillna(False).sum())),
+            profit=("profit", "sum"),
+            risk=("stake_risked", "sum"),
+            avg_odd=("entry_odd", "mean"),
+            max_drawdown=("drawdown", "min"),
+        )
+        .reset_index()
+    )
+    league_group["losses"] = league_group["bets"] - league_group["wins"]
+    league_group["winrate"] = league_group.apply(lambda row: (row["wins"] / row["bets"] * 100.0) if row["bets"] else 0.0, axis=1)
+    league_group["roi"] = league_group.apply(lambda row: (row["profit"] / row["risk"] * 100.0) if row["risk"] else 0.0, axis=1)
+    league_group = league_group.sort_values(["profit", "bets"], ascending=[False, False]).reset_index(drop=True)
+    return league_group
+
+
 def _build_chart_artifacts(results_df: pd.DataFrame, block_period: str = "Mensal") -> dict[str, object]:
     period_config = {
         "Mensal": ("MS", "M?s"),
@@ -605,6 +631,61 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
             grouped["ROI %"] = grouped["ROI %"].map(lambda value: f"{float(value):.2f}%")
             st.dataframe(grouped[[period_label, "Bets", "Wins", "Winrate %", "ROI %", "Drawdown", "Lucro"]], width="stretch", hide_index=True)
 
+    league_summary = _build_league_summary(results_df)
+    if not league_summary.empty:
+        st.subheader("Desempenho por campeonato")
+        league_chart = go.Figure()
+        top_leagues = league_summary.head(12).copy()
+        league_chart.add_trace(
+            go.Bar(
+                x=top_leagues["league"],
+                y=top_leagues["roi"],
+                name="ROI %",
+                marker_color=["#0f766e" if value >= 0 else "#b91c1c" for value in top_leagues["roi"]],
+                opacity=0.9,
+            )
+        )
+        league_chart.add_trace(
+            go.Scatter(
+                x=top_leagues["league"],
+                y=top_leagues["winrate"],
+                mode="lines+markers",
+                name="Winrate %",
+                line=dict(color="#2563eb", width=3),
+                yaxis="y2",
+            )
+        )
+        league_chart.update_layout(
+            height=420,
+            template="plotly_white",
+            margin=dict(l=0, r=0, t=30, b=0),
+            barmode="group",
+            legend=dict(orientation="h"),
+            xaxis_title="Campeonato",
+            yaxis=dict(title="ROI %"),
+            yaxis2=dict(overlaying="y", side="right", title="Winrate %"),
+        )
+        st.plotly_chart(league_chart, width="stretch")
+        league_view = league_summary.copy()
+        league_view["Lucro"] = league_view["profit"].map(format_brl)
+        league_view["Drawdown"] = league_view["max_drawdown"].map(format_brl)
+        league_view["Winrate %"] = league_view["winrate"].map(lambda value: f"{float(value):.2f}%")
+        league_view["ROI %"] = league_view["roi"].map(lambda value: f"{float(value):.2f}%")
+        league_view["Odd média"] = league_view["avg_odd"].map(lambda value: f"{float(value):.2f}")
+        league_view = league_view.rename(
+            columns={
+                "league": "Campeonato",
+                "bets": "Bets",
+                "wins": "Wins",
+                "losses": "Losses",
+            }
+        )
+        st.dataframe(
+            league_view[["Campeonato", "Bets", "Wins", "Losses", "Winrate %", "ROI %", "Lucro", "Drawdown", "Odd média"]],
+            width="stretch",
+            hide_index=True,
+        )
+
 
 def build_backtest_export_bundle(
     report: dict,
@@ -629,6 +710,7 @@ def build_backtest_export_bundle(
 
     display_df = build_results_display_df(results_df)
     period_summary = artifacts["period_summary"].copy()
+    league_summary = _build_league_summary(results_df)
     if not period_summary.empty:
         period_summary = period_summary.rename(
             columns={
@@ -639,6 +721,21 @@ def build_backtest_export_bundle(
                 "winrate": "Winrate %",
                 "roi": "ROI %",
                 "drawdown": "Drawdown",
+            }
+        )
+    league_table = league_summary.copy()
+    if not league_table.empty:
+        league_table["Lucro"] = league_table["profit"].map(format_brl)
+        league_table["Drawdown"] = league_table["max_drawdown"].map(format_brl)
+        league_table["Winrate %"] = league_table["winrate"].map(lambda value: f"{float(value):.2f}%")
+        league_table["ROI %"] = league_table["roi"].map(lambda value: f"{float(value):.2f}%")
+        league_table["Odd média"] = league_table["avg_odd"].map(lambda value: f"{float(value):.2f}")
+        league_table = league_table.rename(
+            columns={
+                "league": "Campeonato",
+                "bets": "Bets",
+                "wins": "Wins",
+                "losses": "Losses",
             }
         )
 
@@ -679,6 +776,7 @@ def build_backtest_export_bundle(
         archive.writestr("resultados_raw.csv", results_df.to_csv(index=False))
         archive.writestr("tabela_resultados.csv", display_df.to_csv(index=False))
         archive.writestr("resumo_por_periodo.csv", period_summary.to_csv(index=False) if not period_summary.empty else "")
+        archive.writestr("resumo_por_campeonato.csv", league_table.to_csv(index=False) if not league_table.empty else "")
         archive.writestr(
             "graficos/profit_acumulado.html",
             artifacts["equity_fig"].to_html(full_html=True, include_plotlyjs="inline"),
