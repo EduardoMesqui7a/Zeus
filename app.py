@@ -4,10 +4,12 @@ import asyncio
 import hashlib
 from dataclasses import replace
 from datetime import datetime
+from io import BytesIO
 import json
 import os
 import re
 import subprocess
+import zipfile
 
 import pandas as pd
 import plotly.express as px
@@ -428,96 +430,147 @@ def _build_period_summary(block_df: pd.DataFrame, freq: str) -> pd.DataFrame:
     return summary.sort_values("period").reset_index(drop=True)
 
 
-def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> None:
-    if results_df.empty:
-        return
-
+def _build_chart_artifacts(results_df: pd.DataFrame, block_period: str = "Mensal") -> dict[str, object]:
     period_config = {
-        "Mensal": ("MS", "Mês"),
+        "Mensal": ("MS", "M?s"),
         "Trimestral": ("QS", "Trimestre"),
         "Semestral": ("6MS", "Semestre"),
         "Anual": ("YS", "Ano"),
     }
     freq, period_label = period_config.get(block_period, period_config["Mensal"])
 
+    block_df = results_df.copy()
+    if not block_df.empty and getattr(block_df["match_datetime"].dt, "tz", None) is not None:
+        block_df["match_datetime"] = block_df["match_datetime"].dt.tz_convert(None)
+
+    odd_summary = _build_odd_bucket_summary(results_df)
+    grouped = _build_period_summary(block_df, freq)
+
+    equity_fig = go.Figure()
+    equity_fig.add_trace(
+        go.Scatter(
+            x=results_df["match_datetime"],
+            y=results_df["cumulative_profit"],
+            mode="lines",
+            name="Equity",
+            line=dict(color="#0f766e", width=3),
+        )
+    )
+    equity_fig.add_trace(
+        go.Scatter(
+            x=results_df["match_datetime"],
+            y=results_df["drawdown"],
+            mode="lines",
+            name="Drawdown",
+            line=dict(color="#dc2626", width=2, dash="dot"),
+            yaxis="y2",
+        )
+    )
+    equity_fig.update_layout(
+        height=420,
+        margin=dict(l=0, r=0, t=20, b=0),
+        template="plotly_white",
+        legend=dict(orientation="h"),
+        yaxis_title="Resultado acumulado",
+        yaxis2=dict(overlaying="y", side="right", title="Drawdown"),
+    )
+
+    odd_fig = go.Figure()
+    if not odd_summary.empty:
+        odd_fig.add_trace(
+            go.Bar(
+                x=odd_summary["odd_bucket"],
+                y=odd_summary["bets"],
+                name="Bets",
+                marker_color="#f59e0b",
+                opacity=0.85,
+            )
+        )
+        odd_fig.add_trace(
+            go.Scatter(
+                x=odd_summary["odd_bucket"],
+                y=odd_summary["winrate"],
+                mode="lines+markers",
+                name="Winrate %",
+                line=dict(color="#16a34a", width=3),
+                yaxis="y2",
+            )
+        )
+        odd_fig.add_trace(
+            go.Scatter(
+                x=odd_summary["odd_bucket"],
+                y=odd_summary["roi"],
+                mode="lines+markers",
+                name="ROI %",
+                line=dict(color="#2563eb", width=3),
+                yaxis="y2",
+            )
+        )
+    odd_fig.update_layout(
+        title="ROI e Winrate por faixa de odd",
+        height=420,
+        margin=dict(l=0, r=0, t=50, b=0),
+        template="plotly_white",
+        barmode="group",
+        legend=dict(orientation="h"),
+        yaxis=dict(title="Bets"),
+        yaxis2=dict(overlaying="y", side="right", title="Percentual"),
+    )
+
+    period_fig = go.Figure()
+    if not grouped.empty:
+        period_fig.add_trace(
+            go.Bar(
+                x=grouped["period"],
+                y=grouped["profit"],
+                name="Lucro do bloco",
+                marker_color=["#0f766e" if value >= 0 else "#b91c1c" for value in grouped["profit"]],
+            )
+        )
+        period_fig.add_trace(
+            go.Scatter(
+                x=grouped["period"],
+                y=grouped["profit"].cumsum(),
+                mode="lines+markers",
+                name="Acumulado por bloco",
+                line=dict(color="#1d4ed8", width=2),
+            )
+        )
+    period_fig.update_layout(
+        height=380,
+        template="plotly_white",
+        margin=dict(l=0, r=0, t=30, b=0),
+        barmode="relative",
+        legend=dict(orientation="h"),
+        xaxis_title=period_label,
+        yaxis_title="Lucro / acumulado",
+    )
+
+    return {
+        "period_label": period_label,
+        "odd_summary": odd_summary,
+        "period_summary": grouped,
+        "equity_fig": equity_fig,
+        "odd_fig": odd_fig,
+        "period_fig": period_fig,
+    }
+
+
+def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> None:
+    if results_df.empty:
+        return
+
+    artifacts = _build_chart_artifacts(results_df, block_period)
+    period_label = str(artifacts["period_label"])
+
     st.subheader("Profit Acumulado")
     left, right = st.columns((1.4, 1))
 
     with left:
-        fig = go.Figure()
-        fig.add_trace(
-            go.Scatter(
-                x=results_df["match_datetime"],
-                y=results_df["cumulative_profit"],
-                mode="lines",
-                name="Equity",
-                line=dict(color="#0f766e", width=3),
-            )
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=results_df["match_datetime"],
-                y=results_df["drawdown"],
-                mode="lines",
-                name="Drawdown",
-                line=dict(color="#dc2626", width=2, dash="dot"),
-                yaxis="y2",
-            )
-        )
-        fig.update_layout(
-            height=420,
-            margin=dict(l=0, r=0, t=20, b=0),
-            template="plotly_white",
-            legend=dict(orientation="h"),
-            yaxis_title="Resultado acumulado",
-            yaxis2=dict(overlaying="y", side="right", title="Drawdown"),
-        )
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(artifacts["equity_fig"], width="stretch")
 
     with right:
-        odd_summary = _build_odd_bucket_summary(results_df)
-        odd_chart = go.Figure()
-        if not odd_summary.empty:
-            odd_chart.add_trace(
-                go.Bar(
-                    x=odd_summary["odd_bucket"],
-                    y=odd_summary["bets"],
-                    name="Bets",
-                    marker_color="#f59e0b",
-                    opacity=0.85,
-                )
-            )
-            odd_chart.add_trace(
-                go.Scatter(
-                    x=odd_summary["odd_bucket"],
-                    y=odd_summary["winrate"],
-                    mode="lines+markers",
-                    name="Winrate %",
-                    line=dict(color="#16a34a", width=3),
-                    yaxis="y2",
-                )
-            )
-            odd_chart.add_trace(
-                go.Scatter(
-                    x=odd_summary["odd_bucket"],
-                    y=odd_summary["roi"],
-                    mode="lines+markers",
-                    name="ROI %",
-                    line=dict(color="#2563eb", width=3),
-                    yaxis="y2",
-                )
-            )
-        odd_chart.update_layout(
-            title="ROI e Winrate por faixa de odd",
-            height=420,
-            margin=dict(l=0, r=0, t=50, b=0),
-            template="plotly_white",
-            barmode="group",
-            legend=dict(orientation="h"),
-            yaxis=dict(title="Bets"),
-            yaxis2=dict(overlaying="y", side="right", title="Percentual"),
-        )
-        st.plotly_chart(odd_chart, width="stretch")
+        st.plotly_chart(artifacts["odd_fig"], width="stretch")
 
     with st.container():
         period_choice = st.selectbox(
@@ -527,44 +580,14 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
             if block_period in {"Mensal", "Trimestral", "Semestral", "Anual"}
             else 0,
             key="zeus_profit_period",
-            help="Escolha como agrupar o lucro: por mês, trimestre, semestre ou ano.",
+            help="Escolha como agrupar o lucro: por m?s, trimestre, semestre ou ano.",
         )
-        freq, period_label = period_config.get(period_choice, period_config["Mensal"])
-
-        block_df = results_df.copy()
-        if getattr(block_df["match_datetime"].dt, "tz", None) is not None:
-            block_df["match_datetime"] = block_df["match_datetime"].dt.tz_convert(None)
-        grouped = _build_period_summary(block_df, freq)
+        artifacts = _build_chart_artifacts(results_df, period_choice)
+        period_label = str(artifacts["period_label"])
+        grouped = artifacts["period_summary"]
         if not grouped.empty:
-            fig_blocks = go.Figure()
-            fig_blocks.add_trace(
-                go.Bar(
-                    x=grouped["period"],
-                    y=grouped["profit"],
-                    name="Lucro do bloco",
-                    marker_color=["#0f766e" if value >= 0 else "#b91c1c" for value in grouped["profit"]],
-                )
-            )
-            fig_blocks.add_trace(
-                go.Scatter(
-                    x=grouped["period"],
-                    y=grouped["profit"].cumsum(),
-                    mode="lines+markers",
-                    name="Acumulado por bloco",
-                    line=dict(color="#1d4ed8", width=2),
-                )
-            )
-            fig_blocks.update_layout(
-                height=380,
-                template="plotly_white",
-                margin=dict(l=0, r=0, t=30, b=0),
-                barmode="relative",
-                legend=dict(orientation="h"),
-                xaxis_title=period_label,
-                yaxis_title="Lucro / acumulado",
-            )
             st.subheader(f"Profit por {period_label.lower()}")
-            st.plotly_chart(fig_blocks, width="stretch")
+            st.plotly_chart(artifacts["period_fig"], width="stretch")
             grouped = grouped.rename(
                 columns={
                     "period": period_label,
@@ -582,6 +605,94 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
             grouped["ROI %"] = grouped["ROI %"].map(lambda value: f"{float(value):.2f}%")
             st.dataframe(grouped[[period_label, "Bets", "Wins", "Winrate %", "ROI %", "Drawdown", "Lucro"]], width="stretch", hide_index=True)
 
+
+def build_backtest_export_bundle(
+    report: dict,
+    *,
+    base_query: str,
+    final_filter: str,
+    market_label: str,
+    block_period: str,
+) -> tuple[bytes, str]:
+    results_df = report["backtest"]["result_df"].copy()
+    metrics = dict(report["backtest"]["metrics"])
+    if results_df.empty or "match_datetime" not in results_df.columns:
+        artifacts = {
+            "period_label": block_period,
+            "period_summary": pd.DataFrame(),
+            "equity_fig": go.Figure(),
+            "odd_fig": go.Figure(),
+            "period_fig": go.Figure(),
+        }
+    else:
+        artifacts = _build_chart_artifacts(results_df, block_period)
+
+    display_df = build_results_display_df(results_df)
+    period_summary = artifacts["period_summary"].copy()
+    if not period_summary.empty:
+        period_summary = period_summary.rename(
+            columns={
+                "period": artifacts["period_label"],
+                "profit": "Lucro",
+                "bets": "Bets",
+                "wins": "Wins",
+                "winrate": "Winrate %",
+                "roi": "ROI %",
+                "drawdown": "Drawdown",
+            }
+        )
+
+    summary_payload = {
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "market_label": market_label,
+        "base_query": base_query,
+        "final_filter": final_filter,
+        "metrics": metrics,
+        "period_grouping": block_period,
+        "strategy_matches": int(metrics.get("strategy_matches", 0) or 0),
+        "verification_hits": int(metrics.get("verification_hits", 0) or 0),
+        "display_rows": int(len(display_df)),
+    }
+
+    gpt_notes = [
+        "# Zeus Backtest Export",
+        "",
+        f"- Market: {market_label}",
+        f"- Base query: {base_query}",
+        f"- Final check: {final_filter}",
+        f"- Rows: {int(len(results_df))}",
+        f"- Wins: {int(metrics.get('wins', 0) or 0)}",
+        f"- Losses: {int(metrics.get('losses', 0) or 0)}",
+        f"- Win rate: {float(metrics.get('win_rate', 0) or 0):.2f}%",
+        f"- ROI: {float(metrics.get('roi', 0) or 0):.2f}%",
+        f"- Profit: {format_brl(float(metrics.get('total_profit', 0) or 0))}",
+        f"- Drawdown max: {format_brl(float(metrics.get('max_drawdown', 0) or 0))}",
+        "",
+        "## Metrics",
+        json.dumps(summary_payload, ensure_ascii=False, indent=2, default=str),
+    ]
+
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("resumo_para_gpt.md", "\n".join(gpt_notes))
+        archive.writestr("resumo_geral.json", json.dumps(summary_payload, ensure_ascii=False, indent=2, default=str))
+        archive.writestr("resultados_raw.csv", results_df.to_csv(index=False))
+        archive.writestr("tabela_resultados.csv", display_df.to_csv(index=False))
+        archive.writestr("resumo_por_periodo.csv", period_summary.to_csv(index=False) if not period_summary.empty else "")
+        archive.writestr(
+            "graficos/profit_acumulado.html",
+            artifacts["equity_fig"].to_html(full_html=True, include_plotlyjs="inline"),
+        )
+        archive.writestr(
+            "graficos/roi_winrate_faixa_odd.html",
+            artifacts["odd_fig"].to_html(full_html=True, include_plotlyjs="inline"),
+        )
+        archive.writestr(
+            "graficos/profit_por_periodo.html",
+            artifacts["period_fig"].to_html(full_html=True, include_plotlyjs="inline"),
+        )
+
+    return buffer.getvalue(), f"zeus_backtest_bundle_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.zip"
 
 def render_game_timeline(client: ZeusClient, game_id: str, market_field: str) -> None:
     timeline = client.fetch_timeline(game_id, market_field=market_field)
@@ -691,6 +802,59 @@ def render_report_view(report: dict, token: str, market_label: str, base_query: 
         file_name="zeus_backtest.csv",
         mime="text/csv",
         key="zeus_download_csv",
+    )
+    current_block_period = str(st.session_state.get("zeus_profit_period", "Mensal"))
+    signature_columns = [
+        column
+        for column in [
+            "sport_event_id",
+            "match_datetime",
+            "entry_minute",
+            "exit_minute",
+            "entry_odd",
+            "exit_odd",
+            "profit",
+            "won",
+            "result_text",
+            "final_home_goals",
+            "final_away_goals",
+            "final_verification_hit",
+        ]
+        if column in report["backtest"]["result_df"].columns
+    ]
+    signature_frame = report["backtest"]["result_df"][signature_columns].copy() if signature_columns else pd.DataFrame()
+    results_signature = hashlib.sha256(signature_frame.to_csv(index=False).encode("utf-8")).hexdigest()
+    export_signature = hashlib.sha256(
+        "|".join(
+            [
+                base_query,
+                final_filter,
+                market_label,
+                current_block_period,
+                results_signature,
+            ]
+        ).encode("utf-8")
+    ).hexdigest()
+    if st.session_state.get("zeus_export_signature") != export_signature:
+        bundle_bytes, bundle_name = build_backtest_export_bundle(
+            report,
+            base_query=base_query,
+            final_filter=final_filter,
+            market_label=market_label,
+            block_period=current_block_period,
+        )
+        st.session_state["zeus_export_signature"] = export_signature
+        st.session_state["zeus_export_bundle"] = bundle_bytes
+        st.session_state["zeus_export_bundle_name"] = bundle_name
+    bundle_bytes = st.session_state.get("zeus_export_bundle")
+    bundle_name = st.session_state.get("zeus_export_bundle_name") or "zeus_backtest_bundle.zip"
+    st.download_button(
+        "Baixar pacote completo",
+        data=bundle_bytes,
+        file_name=bundle_name,
+        mime="application/zip",
+        key="zeus_download_bundle",
+        help="Baixa CSV, resumo em texto/JSON e gráficos em HTML em um único arquivo.",
     )
 
     st.subheader("Detalhe do jogo")
