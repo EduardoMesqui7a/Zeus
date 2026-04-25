@@ -431,13 +431,35 @@ def _build_period_summary(block_df: pd.DataFrame, freq: str) -> pd.DataFrame:
     return summary.sort_values("period").reset_index(drop=True)
 
 
-def _extract_tournament_group_label(row: pd.Series) -> str:
-    for candidate in ("tournament_label", "tournament_name", "tournament_id"):
-        value = row.get(candidate)
-        if pd.notna(value):
-            label = str(value).strip()
-            if label and label.lower() != "gold":
-                return label
+def _extract_tournament_parts(row: pd.Series) -> dict[str, str]:
+    parts = {
+        "tournament_id": "",
+        "tournament_name": "",
+        "season_name": "",
+    }
+    direct_fields = {
+        "tournament_id": ("tournament_id", "IdTorneio", "id_torneio", "TournamentId", "IdCompeticao", "CompetitionId"),
+        "tournament_name": (
+            "tournament_name",
+            "NomeTorneio",
+            "nome_torneio",
+            "TournamentName",
+            "Torneio",
+            "CompetitionName",
+            "NomeCompeticao",
+            "Campeonato",
+            "LeagueName",
+        ),
+        "season_name": ("season_name", "NomeTemporada", "nome_temporada", "SeasonName", "Season"),
+    }
+    for part_name, candidates in direct_fields.items():
+        for candidate in candidates:
+            value = row.get(candidate)
+            if pd.notna(value):
+                label = str(value).strip()
+                if label and label.lower() != "gold":
+                    parts[part_name] = label
+                    break
 
     for snapshot_column in ("entry_snapshot", "final_snapshot"):
         snapshot_value = row.get(snapshot_column)
@@ -455,41 +477,28 @@ def _extract_tournament_group_label(row: pd.Series) -> str:
                 snapshot_data = parsed
         if not snapshot_data:
             continue
-        for candidate in (
-            "NomeTorneio",
-            "nome_torneio",
-            "TournamentName",
-            "tournament_name",
-            "Torneio",
-            "torneio",
-            "NomeTemporada",
-            "nome_temporada",
-            "SeasonName",
-            "season_name",
-            "CompetitionName",
-            "competition_name",
-            "NomeCompeticao",
-            "nome_competicao",
-            "Campeonato",
-            "campeonato",
-            "LeagueName",
-            "league_name",
-            "IdTorneio",
-            "id_torneio",
-            "TournamentId",
-            "tournament_id",
-            "IdCompeticao",
-            "id_competicao",
-            "CompetitionId",
-            "competition_id",
-        ):
-            value = snapshot_data.get(candidate)
-            if value is None:
+        for part_name, candidates in direct_fields.items():
+            if parts[part_name]:
                 continue
-            label = str(value).strip()
-            if label and label.lower() != "gold":
-                return label
-    return "Sem torneio"
+            for candidate in candidates:
+                value = snapshot_data.get(candidate)
+                if value is None:
+                    continue
+                label = str(value).strip()
+                if label and label.lower() != "gold":
+                    parts[part_name] = label
+                    break
+
+    tournament_name = parts["tournament_name"]
+    tournament_id = parts["tournament_id"]
+    season_name = parts["season_name"]
+    if tournament_name and tournament_id:
+        display_label = f"{tournament_name} ({tournament_id})"
+    else:
+        display_label = tournament_name or tournament_id or season_name or "Sem torneio"
+    parts["group_key"] = tournament_id or tournament_name or season_name or "Sem torneio"
+    parts["group_label"] = display_label
+    return parts
 
 
 def _build_league_summary(results_df: pd.DataFrame) -> pd.DataFrame:
@@ -497,11 +506,16 @@ def _build_league_summary(results_df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     league_frame = results_df.copy()
-    league_frame["group_label"] = league_frame.apply(_extract_tournament_group_label, axis=1)
+    tournament_parts = league_frame.apply(_extract_tournament_parts, axis=1, result_type="expand")
+    league_frame = pd.concat([league_frame, tournament_parts.add_prefix("summary_")], axis=1)
     league_group = (
-        league_frame.groupby("group_label", dropna=False)
+        league_frame.groupby("summary_group_key", dropna=False)
         .agg(
-            bets=("group_label", "size"),
+            group_label=("summary_group_label", "first"),
+            tournament_id=("summary_tournament_id", "first"),
+            tournament_name=("summary_tournament_name", "first"),
+            season_name=("summary_season_name", "first"),
+            bets=("summary_group_key", "size"),
             wins=("won", lambda series: int(pd.Series(series).fillna(False).sum())),
             profit=("profit", "sum"),
             risk=("stake_risked", "sum"),
@@ -736,13 +750,16 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
         league_view = league_view.rename(
             columns={
                 "group_label": "Torneio",
+                "tournament_id": "ID Torneio",
+                "tournament_name": "Campeonato",
+                "season_name": "Temporada",
                 "bets": "Bets",
                 "wins": "Wins",
                 "losses": "Losses",
             }
         )
         st.dataframe(
-            league_view[["Torneio", "Bets", "Wins", "Losses", "Winrate %", "ROI %", "Lucro", "Drawdown", "Odd média"]],
+            league_view[["Torneio", "ID Torneio", "Campeonato", "Temporada", "Bets", "Wins", "Losses", "Winrate %", "ROI %", "Lucro", "Drawdown", "Odd média"]],
             width="stretch",
             hide_index=True,
         )
@@ -794,11 +811,30 @@ def build_backtest_export_bundle(
         league_table = league_table.rename(
             columns={
                 "group_label": "Torneio",
+                "tournament_id": "ID Torneio",
+                "tournament_name": "Campeonato",
+                "season_name": "Temporada",
                 "bets": "Bets",
                 "wins": "Wins",
                 "losses": "Losses",
             }
         )
+        league_table = league_table[
+            [
+                "Torneio",
+                "ID Torneio",
+                "Campeonato",
+                "Temporada",
+                "Bets",
+                "Wins",
+                "Losses",
+                "Winrate %",
+                "ROI %",
+                "Lucro",
+                "Drawdown",
+                "Odd média",
+            ]
+        ]
 
     summary_payload = {
         "generated_at": datetime.utcnow().isoformat() + "Z",
@@ -825,6 +861,7 @@ def build_backtest_export_bundle(
         f"- ROI: {float(metrics.get('roi', 0) or 0):.2f}%",
         f"- Profit: {format_brl(float(metrics.get('total_profit', 0) or 0))}",
         f"- Drawdown max: {format_brl(float(metrics.get('max_drawdown', 0) or 0))}",
+        "- Tournament analysis: use `resumo_por_campeonato.csv`; exclusions should be based on `ID Torneio`, not Gold/Silver or season labels.",
         "",
         "## Metrics",
         json.dumps(summary_payload, ensure_ascii=False, indent=2, default=str),

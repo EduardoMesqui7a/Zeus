@@ -256,10 +256,24 @@ class MarketSettlementTests(unittest.TestCase):
             "tournament_round_number": 8,
             "NivelDados": "Gold",
         }
-        tournament_id, tournament_name, tournament_label = _extract_tournament_label(snapshot)
+        tournament_id, tournament_name, season_name, tournament_label = _extract_tournament_label(snapshot)
         self.assertEqual(tournament_id, "")
-        self.assertEqual(tournament_name, "liga mx, clausura 2026")
+        self.assertEqual(tournament_name, "")
+        self.assertEqual(season_name, "liga mx, clausura 2026")
         self.assertEqual(tournament_label, "liga mx, clausura 2026")
+
+    def test_extract_tournament_label_keeps_tournament_id_separate_from_season(self) -> None:
+        snapshot = {
+            "IdTorneio": "sr:tournament:8",
+            "NomeTorneio": "Laliga (ESP)",
+            "NomeTemporada": "Laliga 2025/2026",
+            "NivelDados": "Gold",
+        }
+        tournament_id, tournament_name, season_name, tournament_label = _extract_tournament_label(snapshot)
+        self.assertEqual(tournament_id, "sr:tournament:8")
+        self.assertEqual(tournament_name, "Laliga (ESP)")
+        self.assertEqual(season_name, "Laliga 2025/2026")
+        self.assertEqual(tournament_label, "Laliga (ESP) (sr:tournament:8)")
 
     def test_back_under_half_ht_uses_cashout_when_market_is_still_open(self) -> None:
         base_row = {

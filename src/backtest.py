@@ -88,9 +88,10 @@ def _final_outcome_any_other_away_win(snapshot: dict[str, Any]) -> bool:
     return away_goals >= 4 and away_goals > home_goals
 
 
-def _extract_tournament_label(*sources: dict[str, Any]) -> tuple[str, str, str]:
+def _extract_tournament_label(*sources: dict[str, Any]) -> tuple[str, str, str, str]:
     tournament_id = ""
     tournament_name = ""
+    season_name = ""
     for source in sources:
         if not isinstance(source, dict):
             continue
@@ -114,10 +115,6 @@ def _extract_tournament_label(*sources: dict[str, Any]) -> tuple[str, str, str]:
                 or source.get("tournament_name")
                 or source.get("Torneio")
                 or source.get("torneio")
-                or source.get("NomeTemporada")
-                or source.get("nome_temporada")
-                or source.get("SeasonName")
-                or source.get("season_name")
                 or source.get("CompetitionName")
                 or source.get("competition_name")
                 or source.get("NomeCompeticao")
@@ -128,13 +125,23 @@ def _extract_tournament_label(*sources: dict[str, Any]) -> tuple[str, str, str]:
                 or source.get("league_name")
                 or ""
             ).strip()
-        if tournament_id and tournament_name:
+        if not season_name:
+            season_name = str(
+                source.get("NomeTemporada")
+                or source.get("nome_temporada")
+                or source.get("SeasonName")
+                or source.get("season_name")
+                or source.get("Season")
+                or source.get("season")
+                or ""
+            ).strip()
+        if tournament_id and tournament_name and season_name:
             break
     if tournament_name and tournament_id:
         tournament_label = f"{tournament_name} ({tournament_id})"
     else:
-        tournament_label = tournament_name or tournament_id or ""
-    return tournament_id, tournament_name, tournament_label
+        tournament_label = tournament_name or tournament_id or season_name or ""
+    return tournament_id, tournament_name, season_name, tournament_label
 
 
 def _early_decision_total_goals(threshold: int) -> Callable[[dict[str, Any]], bool]:
@@ -664,7 +671,7 @@ def _build_row(
         settlement_minute,
         config.final_filter,
     )
-    tournament_id, tournament_name, tournament_label = _extract_tournament_label(final_snapshot, entry_snapshot, row)
+    tournament_id, tournament_name, season_name, tournament_label = _extract_tournament_label(final_snapshot, entry_snapshot, row)
 
     final_verification_hit = True
     if config.final_filter:
@@ -722,6 +729,7 @@ def _build_row(
         "league": row.get("NivelDados") or row.get("campeonato") or "",
         "tournament_id": tournament_id,
         "tournament_name": tournament_name,
+        "season_name": season_name,
         "tournament_label": tournament_label,
         "home_team": row.get("NomeCasa") or row.get("mandante") or "",
         "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
@@ -759,7 +767,7 @@ def run_backtest(client: ZeusClient, rows: list[dict[str, Any]], config: Backtes
         try:
             return _build_row(client, row, config, market)
         except Exception as exc:
-            tournament_id, tournament_name, tournament_label = _extract_tournament_label(row)
+            tournament_id, tournament_name, season_name, tournament_label = _extract_tournament_label(row)
             return {
                 "sport_event_id": row.get("sport_event_id"),
                 "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
@@ -767,6 +775,7 @@ def run_backtest(client: ZeusClient, rows: list[dict[str, Any]], config: Backtes
                 "league": row.get("NivelDados") or row.get("campeonato") or "",
                 "tournament_id": tournament_id,
                 "tournament_name": tournament_name,
+                "season_name": season_name,
                 "tournament_label": tournament_label,
                 "home_team": row.get("NomeCasa") or row.get("mandante") or "",
                 "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
@@ -872,7 +881,7 @@ async def _build_row_async(
         settlement_minute,
         config.final_filter,
     )
-    tournament_id, tournament_name, tournament_label = _extract_tournament_label(final_snapshot, entry_snapshot, row)
+    tournament_id, tournament_name, season_name, tournament_label = _extract_tournament_label(final_snapshot, entry_snapshot, row)
 
     final_verification_hit = True
     if config.final_filter:
@@ -928,6 +937,10 @@ async def _build_row_async(
         "display_label": match_label,
         "match_datetime": _normalize_datetime(row.get("DataJogo")),
         "league": row.get("NivelDados") or row.get("campeonato") or "",
+        "tournament_id": tournament_id,
+        "tournament_name": tournament_name,
+        "season_name": season_name,
+        "tournament_label": tournament_label,
         "home_team": row.get("NomeCasa") or row.get("mandante") or "",
         "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
         "entry_minute": entry_minute,
@@ -972,7 +985,7 @@ async def run_backtest_async(
             try:
                 return await _build_row_async(client, row, config, market)
             except Exception as exc:
-                tournament_id, tournament_name, tournament_label = _extract_tournament_label(row)
+                tournament_id, tournament_name, season_name, tournament_label = _extract_tournament_label(row)
                 return {
                     "sport_event_id": row.get("sport_event_id"),
                     "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
@@ -980,6 +993,7 @@ async def run_backtest_async(
                     "league": row.get("NivelDados") or row.get("campeonato") or "",
                     "tournament_id": tournament_id,
                     "tournament_name": tournament_name,
+                    "season_name": season_name,
                     "tournament_label": tournament_label,
                     "home_team": row.get("NomeCasa") or row.get("mandante") or "",
                     "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
