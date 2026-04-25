@@ -5,6 +5,7 @@ from src.backtest import (
     BacktestConfig,
     _apply_back_profit,
     _apply_lay_profit,
+    _extract_tournament_label,
     _build_row,
     _build_row_async,
     _finalize_backtest,
@@ -248,6 +249,17 @@ class MarketSettlementTests(unittest.TestCase):
         self.assertEqual(client.snapshot_calls[-2:], [("sr:match:dummy", 44, 1), ("sr:match:dummy", 45, 1)])
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["won"])
+
+    def test_extract_tournament_label_uses_season_name_instead_of_tier(self) -> None:
+        snapshot = {
+            "NomeTemporada": "liga mx, clausura 2026",
+            "tournament_round_number": 8,
+            "NivelDados": "Gold",
+        }
+        tournament_id, tournament_name, tournament_label = _extract_tournament_label(snapshot)
+        self.assertEqual(tournament_id, "")
+        self.assertEqual(tournament_name, "liga mx, clausura 2026")
+        self.assertEqual(tournament_label, "liga mx, clausura 2026")
 
     def test_back_under_half_ht_uses_cashout_when_market_is_still_open(self) -> None:
         base_row = {

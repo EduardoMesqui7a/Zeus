@@ -88,23 +88,48 @@ def _final_outcome_any_other_away_win(snapshot: dict[str, Any]) -> bool:
     return away_goals >= 4 and away_goals > home_goals
 
 
-def _extract_tournament_label(row: dict[str, Any]) -> tuple[str, str, str]:
-    tournament_id = str(
-        row.get("IdTorneio")
-        or row.get("id_torneio")
-        or row.get("TournamentId")
-        or row.get("tournament_id")
-        or ""
-    ).strip()
-    tournament_name = str(
-        row.get("NomeTorneio")
-        or row.get("nome_torneio")
-        or row.get("TournamentName")
-        or row.get("tournament_name")
-        or row.get("Torneio")
-        or row.get("torneio")
-        or ""
-    ).strip()
+def _extract_tournament_label(*sources: dict[str, Any]) -> tuple[str, str, str]:
+    tournament_id = ""
+    tournament_name = ""
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        if not tournament_id:
+            tournament_id = str(
+                source.get("IdTorneio")
+                or source.get("id_torneio")
+                or source.get("TournamentId")
+                or source.get("tournament_id")
+                or source.get("IdCompeticao")
+                or source.get("id_competicao")
+                or source.get("CompetitionId")
+                or source.get("competition_id")
+                or ""
+            ).strip()
+        if not tournament_name:
+            tournament_name = str(
+                source.get("NomeTorneio")
+                or source.get("nome_torneio")
+                or source.get("TournamentName")
+                or source.get("tournament_name")
+                or source.get("Torneio")
+                or source.get("torneio")
+                or source.get("NomeTemporada")
+                or source.get("nome_temporada")
+                or source.get("SeasonName")
+                or source.get("season_name")
+                or source.get("CompetitionName")
+                or source.get("competition_name")
+                or source.get("NomeCompeticao")
+                or source.get("nome_competicao")
+                or source.get("Campeonato")
+                or source.get("campeonato")
+                or source.get("LeagueName")
+                or source.get("league_name")
+                or ""
+            ).strip()
+        if tournament_id and tournament_name:
+            break
     if tournament_name and tournament_id:
         tournament_label = f"{tournament_name} ({tournament_id})"
     else:
@@ -629,7 +654,6 @@ def _build_row(
     if not game_id:
         raise ZeusClientError("Registro sem sport_event_id.")
 
-    tournament_id, tournament_name, tournament_label = _extract_tournament_label(row)
     entry_minute = config.entry_minute or infer_entry_minute(str(row.get("query") or ""))
     entry_period, entry_period_minute = absolute_to_period_minute(entry_minute)
     entry_snapshot = client.fetch_snapshot(game_id, minute=entry_period_minute, period=entry_period)
@@ -640,6 +664,7 @@ def _build_row(
         settlement_minute,
         config.final_filter,
     )
+    tournament_id, tournament_name, tournament_label = _extract_tournament_label(final_snapshot, entry_snapshot, row)
 
     final_verification_hit = True
     if config.final_filter:
@@ -734,28 +759,15 @@ def run_backtest(client: ZeusClient, rows: list[dict[str, Any]], config: Backtes
         try:
             return _build_row(client, row, config, market)
         except Exception as exc:
+            tournament_id, tournament_name, tournament_label = _extract_tournament_label(row)
             return {
                 "sport_event_id": row.get("sport_event_id"),
                 "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
                 "match_datetime": _normalize_datetime(row.get("DataJogo")),
                 "league": row.get("NivelDados") or row.get("campeonato") or "",
-                "tournament_id": str(
-                    row.get("IdTorneio")
-                    or row.get("id_torneio")
-                    or row.get("TournamentId")
-                    or row.get("tournament_id")
-                    or ""
-                ).strip(),
-                "tournament_name": str(
-                    row.get("NomeTorneio")
-                    or row.get("nome_torneio")
-                    or row.get("TournamentName")
-                    or row.get("tournament_name")
-                    or row.get("Torneio")
-                    or row.get("torneio")
-                    or ""
-                ).strip(),
-                "tournament_label": "",
+                "tournament_id": tournament_id,
+                "tournament_name": tournament_name,
+                "tournament_label": tournament_label,
                 "home_team": row.get("NomeCasa") or row.get("mandante") or "",
                 "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
                 "odds_fields": market.get("odds_fields") or [],
@@ -860,6 +872,7 @@ async def _build_row_async(
         settlement_minute,
         config.final_filter,
     )
+    tournament_id, tournament_name, tournament_label = _extract_tournament_label(final_snapshot, entry_snapshot, row)
 
     final_verification_hit = True
     if config.final_filter:
@@ -959,28 +972,15 @@ async def run_backtest_async(
             try:
                 return await _build_row_async(client, row, config, market)
             except Exception as exc:
+                tournament_id, tournament_name, tournament_label = _extract_tournament_label(row)
                 return {
                     "sport_event_id": row.get("sport_event_id"),
                     "display_label": f"{row.get('NomeCasa')} x {row.get('NomeVisitante')}",
                     "match_datetime": _normalize_datetime(row.get("DataJogo")),
                     "league": row.get("NivelDados") or row.get("campeonato") or "",
-                    "tournament_id": str(
-                        row.get("IdTorneio")
-                        or row.get("id_torneio")
-                        or row.get("TournamentId")
-                        or row.get("tournament_id")
-                        or ""
-                    ).strip(),
-                    "tournament_name": str(
-                        row.get("NomeTorneio")
-                        or row.get("nome_torneio")
-                        or row.get("TournamentName")
-                        or row.get("tournament_name")
-                        or row.get("Torneio")
-                        or row.get("torneio")
-                        or ""
-                    ).strip(),
-                    "tournament_label": "",
+                    "tournament_id": tournament_id,
+                    "tournament_name": tournament_name,
+                    "tournament_label": tournament_label,
                     "home_team": row.get("NomeCasa") or row.get("mandante") or "",
                     "away_team": row.get("NomeVisitante") or row.get("visitante") or "",
                     "status": f"erro: {exc}",

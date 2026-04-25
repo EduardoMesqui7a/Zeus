@@ -432,7 +432,7 @@ def _build_period_summary(block_df: pd.DataFrame, freq: str) -> pd.DataFrame:
 
 def _build_league_summary(results_df: pd.DataFrame) -> pd.DataFrame:
     label_column = None
-    for candidate in ("tournament_label", "tournament_name", "league"):
+    for candidate in ("tournament_label", "tournament_name", "tournament_id"):
         if candidate in results_df.columns:
             label_column = candidate
             break
