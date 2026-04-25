@@ -431,15 +431,22 @@ def _build_period_summary(block_df: pd.DataFrame, freq: str) -> pd.DataFrame:
 
 
 def _build_league_summary(results_df: pd.DataFrame) -> pd.DataFrame:
-    label_column = None
-    for candidate in ("tournament_label", "tournament_name", "tournament_id"):
-        if candidate in results_df.columns:
-            label_column = candidate
-            break
-    if results_df.empty or label_column is None:
+    if results_df.empty:
         return pd.DataFrame()
 
     league_frame = results_df.copy()
+    label_column = None
+    for candidate in ("tournament_label", "tournament_name", "tournament_id", "league"):
+        if candidate not in league_frame.columns:
+            continue
+        normalized = league_frame[candidate].fillna("").astype(str).str.strip()
+        if normalized.eq("").all():
+            continue
+        label_column = candidate
+        league_frame[candidate] = normalized
+        break
+    if label_column is None:
+        return pd.DataFrame()
     league_frame[label_column] = league_frame[label_column].fillna("Sem torneio").astype(str).str.strip()
     league_frame.loc[league_frame[label_column] == "", label_column] = "Sem torneio"
     league_group = (
