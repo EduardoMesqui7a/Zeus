@@ -1218,7 +1218,11 @@ def load_backtest_report(
                 max_games=max_games,
                 include_count=True,
             )
-            bot_config_task = async_client.fetch_bot_config()
+            fetch_bot_config = getattr(async_client, "fetch_bot_config", None)
+            if callable(fetch_bot_config):
+                bot_config_task = fetch_bot_config()
+            else:
+                bot_config_task = asyncio.sleep(0, result={})
             base_count_info, full_bundle, bot_config = await asyncio.gather(base_count_task, full_rows_task, bot_config_task)
             if isinstance(full_bundle, tuple) and len(full_bundle) == 2:
                 full_count_info, lucy_rows = full_bundle
