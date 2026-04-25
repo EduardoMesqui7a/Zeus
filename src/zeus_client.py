@@ -239,20 +239,17 @@ class ZeusClient:
         self,
         query: str,
         *,
-        max_pages: int | None = None,
         max_games: int | None = None,
     ) -> list[dict[str, Any]]:
         first_page = self.search_page(query, page=1)
         total_pages = int(first_page.get("numberPages") or 1)
-        per_page = int(first_page.get("perPage") or 10)
         current_page = int(first_page.get("currentPage") or 1)
         rows = list(first_page.get("result") or [])
 
-        page_limit = total_pages if max_pages is None else min(total_pages, int(max_pages))
         if max_games is not None and len(rows) >= max_games:
             return rows[:max_games]
 
-        for page in range(current_page + 1, page_limit + 1):
+        for page in range(current_page + 1, total_pages + 1):
             page_data = self.search_page(query, page=page)
             rows.extend(page_data.get("result") or [])
             if max_games is not None and len(rows) >= max_games:
@@ -538,7 +535,6 @@ class AsyncZeusClient:
         self,
         query: str,
         *,
-        max_pages: int | None = None,
         max_games: int | None = None,
         include_count: bool = False,
     ) -> list[dict[str, Any]] | tuple[int, list[dict[str, Any]]]:
@@ -553,11 +549,10 @@ class AsyncZeusClient:
                 return total_count, result_rows
             return result_rows
 
-        page_limit = total_pages if max_pages is None else min(total_pages, int(max_pages))
         if max_games is not None and len(rows) >= max_games:
             return _pack(rows[:max_games])
 
-        page_numbers = list(range(current_page + 1, page_limit + 1))
+        page_numbers = list(range(current_page + 1, total_pages + 1))
         if not page_numbers:
             return _pack(rows[:max_games] if max_games is not None else rows)
 

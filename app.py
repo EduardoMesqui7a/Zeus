@@ -1122,11 +1122,10 @@ class CachedAsyncZeusClient:
         self,
         query: str,
         *,
-        max_pages: int | None = None,
         max_games: int | None = None,
         include_count: bool = False,
     ):
-        key = (query, int(max_pages or 0), int(max_games or 0), bool(include_count))
+        key = (query, int(max_games or 0), bool(include_count))
         if key in self._search_cache:
             return self._search_cache[key]
         task = self._search_inflight.get(key)
@@ -1134,7 +1133,6 @@ class CachedAsyncZeusClient:
             task = asyncio.create_task(
                 self._client.search_all(
                     query,
-                    max_pages=max_pages,
                     max_games=max_games,
                     include_count=include_count,
                 )
@@ -1193,7 +1191,6 @@ def load_backtest_report(
     market_label: str,
     stake: float,
     commission: float,
-    max_pages: int,
     max_games: int,
     entry_minute: int,
     final_minute: int,
@@ -1214,7 +1211,6 @@ def load_backtest_report(
             base_count_task = async_client.count(sanitized_base) if sanitized_base else asyncio.sleep(0, result={"count": 0})
             full_rows_task = async_client.search_all(
                 sanitized_base,
-                max_pages=max_pages,
                 max_games=max_games,
                 include_count=True,
             )
@@ -1876,7 +1872,6 @@ def main() -> None:
         stake = st.number_input("Stake por entrada", min_value=1.0, value=100.0, step=10.0)
         commission_pct = st.number_input("Comissão (%)", min_value=0.0, max_value=20.0, value=6.5, step=0.5, format="%.1f")
         commission_decimal = float(commission_pct) / 100.0
-        max_pages = st.number_input("Máximo de páginas na Lucy", min_value=1, value=200, step=1)
         max_games = st.number_input("Máximo de jogos", min_value=1, value=1000, step=10)
         entry_override = st.text_input("Minuto de entrada", value="", help="Opcional. Ex.: 20, 89 ou 500.")
         final_override = st.text_input(
@@ -1931,7 +1926,6 @@ def main() -> None:
                     market_label,
                     float(stake),
                     commission_decimal,
-                    int(max_pages),
                     int(max_games),
                     entry_minute,
                     final_minute,
