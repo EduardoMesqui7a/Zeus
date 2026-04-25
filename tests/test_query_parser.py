@@ -4,6 +4,7 @@ from src.query_parser import (
     absolute_to_period_minute,
     evaluate_snapshot_query,
     infer_final_minute,
+    infer_snapshot_period,
     period_minute_to_absolute,
     rewrite_query_minute_refs,
     rewrite_query_period_refs,
@@ -22,6 +23,10 @@ class QueryParserTests(unittest.TestCase):
 
     def test_infer_final_minute_uses_final_filter_minute(self) -> None:
         self.assertEqual(infer_final_minute("(m45.Periodo = 2) and (m45.GolsTotal = 0)"), 45)
+
+    def test_infer_snapshot_period_treats_m45_as_halftime_close(self) -> None:
+        self.assertEqual(infer_snapshot_period("(m45.GolsTotal >= 1)", 45), 2)
+        self.assertEqual(infer_snapshot_period("(m45.Periodo = 1) and (m45.GolsTotal >= 1)", 45), 1)
 
     def test_rewrite_query_minute_refs_only_replaces_source_minute(self) -> None:
         query = '(m25.GolsTotal = 0) and (m500.DataJogo >= "2023-01-01")'

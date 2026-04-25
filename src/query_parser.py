@@ -58,7 +58,7 @@ def infer_snapshot_period(query: str, minute: int | None = None) -> int:
         return int(match.group(1))
     if minute is None:
         return 1
-    if minute == 500 or minute > 45:
+    if minute == 500 or minute >= 45:
         return 2
     return 1
 
