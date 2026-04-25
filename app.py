@@ -431,16 +431,21 @@ def _build_period_summary(block_df: pd.DataFrame, freq: str) -> pd.DataFrame:
 
 
 def _build_league_summary(results_df: pd.DataFrame) -> pd.DataFrame:
-    if results_df.empty or "league" not in results_df.columns:
+    label_column = None
+    for candidate in ("tournament_label", "tournament_name", "league"):
+        if candidate in results_df.columns:
+            label_column = candidate
+            break
+    if results_df.empty or label_column is None:
         return pd.DataFrame()
 
     league_frame = results_df.copy()
-    league_frame["league"] = league_frame["league"].fillna("Sem campeonato").astype(str).str.strip()
-    league_frame.loc[league_frame["league"] == "", "league"] = "Sem campeonato"
+    league_frame[label_column] = league_frame[label_column].fillna("Sem torneio").astype(str).str.strip()
+    league_frame.loc[league_frame[label_column] == "", label_column] = "Sem torneio"
     league_group = (
-        league_frame.groupby("league", dropna=False)
+        league_frame.groupby(label_column, dropna=False)
         .agg(
-            bets=("league", "size"),
+            bets=(label_column, "size"),
             wins=("won", lambda series: int(pd.Series(series).fillna(False).sum())),
             profit=("profit", "sum"),
             risk=("stake_risked", "sum"),
@@ -449,6 +454,7 @@ def _build_league_summary(results_df: pd.DataFrame) -> pd.DataFrame:
         )
         .reset_index()
     )
+    league_group = league_group.rename(columns={label_column: "group_label"})
     league_group["losses"] = league_group["bets"] - league_group["wins"]
     league_group["winrate"] = league_group.apply(lambda row: (row["wins"] / row["bets"] * 100.0) if row["bets"] else 0.0, axis=1)
     league_group["roi"] = league_group.apply(lambda row: (row["profit"] / row["risk"] * 100.0) if row["risk"] else 0.0, axis=1)
@@ -633,12 +639,12 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
 
     league_summary = _build_league_summary(results_df)
     if not league_summary.empty:
-        st.subheader("Desempenho por campeonato")
+        st.subheader("Desempenho por torneio")
         league_chart = go.Figure()
         top_leagues = league_summary.head(12).copy()
         league_chart.add_trace(
             go.Bar(
-                x=top_leagues["league"],
+                x=top_leagues["group_label"],
                 y=top_leagues["roi"],
                 name="ROI %",
                 marker_color=["#0f766e" if value >= 0 else "#b91c1c" for value in top_leagues["roi"]],
@@ -647,7 +653,7 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
         )
         league_chart.add_trace(
             go.Scatter(
-                x=top_leagues["league"],
+                x=top_leagues["group_label"],
                 y=top_leagues["winrate"],
                 mode="lines+markers",
                 name="Winrate %",
@@ -661,7 +667,7 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
             margin=dict(l=0, r=0, t=30, b=0),
             barmode="group",
             legend=dict(orientation="h"),
-            xaxis_title="Campeonato",
+            xaxis_title="Torneio",
             yaxis=dict(title="ROI %"),
             yaxis2=dict(overlaying="y", side="right", title="Winrate %"),
         )
@@ -674,14 +680,14 @@ def render_charts(results_df: pd.DataFrame, block_period: str = "Mensal") -> Non
         league_view["Odd média"] = league_view["avg_odd"].map(lambda value: f"{float(value):.2f}")
         league_view = league_view.rename(
             columns={
-                "league": "Campeonato",
+                "group_label": "Torneio",
                 "bets": "Bets",
                 "wins": "Wins",
                 "losses": "Losses",
             }
         )
         st.dataframe(
-            league_view[["Campeonato", "Bets", "Wins", "Losses", "Winrate %", "ROI %", "Lucro", "Drawdown", "Odd média"]],
+            league_view[["Torneio", "Bets", "Wins", "Losses", "Winrate %", "ROI %", "Lucro", "Drawdown", "Odd média"]],
             width="stretch",
             hide_index=True,
         )
@@ -732,7 +738,7 @@ def build_backtest_export_bundle(
         league_table["Odd média"] = league_table["avg_odd"].map(lambda value: f"{float(value):.2f}")
         league_table = league_table.rename(
             columns={
-                "league": "Campeonato",
+                "group_label": "Torneio",
                 "bets": "Bets",
                 "wins": "Wins",
                 "losses": "Losses",
