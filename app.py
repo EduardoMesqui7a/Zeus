@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 import hashlib
 from dataclasses import replace
@@ -430,29 +431,77 @@ def _build_period_summary(block_df: pd.DataFrame, freq: str) -> pd.DataFrame:
     return summary.sort_values("period").reset_index(drop=True)
 
 
+def _extract_tournament_group_label(row: pd.Series) -> str:
+    for candidate in ("tournament_label", "tournament_name", "tournament_id"):
+        value = row.get(candidate)
+        if pd.notna(value):
+            label = str(value).strip()
+            if label and label.lower() != "gold":
+                return label
+
+    for snapshot_column in ("entry_snapshot", "final_snapshot"):
+        snapshot_value = row.get(snapshot_column)
+        if not snapshot_value:
+            continue
+        snapshot_data: dict[str, object] | None = None
+        if isinstance(snapshot_value, dict):
+            snapshot_data = snapshot_value
+        else:
+            try:
+                parsed = ast.literal_eval(str(snapshot_value))
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict):
+                snapshot_data = parsed
+        if not snapshot_data:
+            continue
+        for candidate in (
+            "NomeTorneio",
+            "nome_torneio",
+            "TournamentName",
+            "tournament_name",
+            "Torneio",
+            "torneio",
+            "NomeTemporada",
+            "nome_temporada",
+            "SeasonName",
+            "season_name",
+            "CompetitionName",
+            "competition_name",
+            "NomeCompeticao",
+            "nome_competicao",
+            "Campeonato",
+            "campeonato",
+            "LeagueName",
+            "league_name",
+            "IdTorneio",
+            "id_torneio",
+            "TournamentId",
+            "tournament_id",
+            "IdCompeticao",
+            "id_competicao",
+            "CompetitionId",
+            "competition_id",
+        ):
+            value = snapshot_data.get(candidate)
+            if value is None:
+                continue
+            label = str(value).strip()
+            if label and label.lower() != "gold":
+                return label
+    return "Sem torneio"
+
+
 def _build_league_summary(results_df: pd.DataFrame) -> pd.DataFrame:
     if results_df.empty:
         return pd.DataFrame()
 
     league_frame = results_df.copy()
-    label_column = None
-    for candidate in ("tournament_label", "tournament_name", "tournament_id", "league"):
-        if candidate not in league_frame.columns:
-            continue
-        normalized = league_frame[candidate].fillna("").astype(str).str.strip()
-        if normalized.eq("").all():
-            continue
-        label_column = candidate
-        league_frame[candidate] = normalized
-        break
-    if label_column is None:
-        return pd.DataFrame()
-    league_frame[label_column] = league_frame[label_column].fillna("Sem torneio").astype(str).str.strip()
-    league_frame.loc[league_frame[label_column] == "", label_column] = "Sem torneio"
+    league_frame["group_label"] = league_frame.apply(_extract_tournament_group_label, axis=1)
     league_group = (
-        league_frame.groupby(label_column, dropna=False)
+        league_frame.groupby("group_label", dropna=False)
         .agg(
-            bets=(label_column, "size"),
+            bets=("group_label", "size"),
             wins=("won", lambda series: int(pd.Series(series).fillna(False).sum())),
             profit=("profit", "sum"),
             risk=("stake_risked", "sum"),
@@ -461,7 +510,6 @@ def _build_league_summary(results_df: pd.DataFrame) -> pd.DataFrame:
         )
         .reset_index()
     )
-    league_group = league_group.rename(columns={label_column: "group_label"})
     league_group["losses"] = league_group["bets"] - league_group["wins"]
     league_group["winrate"] = league_group.apply(lambda row: (row["wins"] / row["bets"] * 100.0) if row["bets"] else 0.0, axis=1)
     league_group["roi"] = league_group.apply(lambda row: (row["profit"] / row["risk"] * 100.0) if row["risk"] else 0.0, axis=1)
