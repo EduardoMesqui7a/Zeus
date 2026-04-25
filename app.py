@@ -32,6 +32,7 @@ from src.query_parser import (
     rewrite_query_period_refs,
 )
 from src.session_store import clear_saved_session, load_saved_session, save_token
+from src.tournament_catalog import enrich_results_with_tournament_catalog
 from src.zeus_client import AsyncZeusClient, ZeusClient, ZeusClientError
 
 
@@ -48,7 +49,6 @@ def dedupe_rows_by_sport_event_id(rows: list[dict[str, object]]) -> list[dict[st
         seen_ids.add(game_id)
         deduped.append(row)
     return deduped
-
 
 def build_minute_candidate_grid(entry_minutes, final_minutes):
     if hasattr(optimization_mod, "build_minute_candidate_grid"):
@@ -1218,7 +1218,8 @@ def load_backtest_report(
                 max_games=max_games,
                 include_count=True,
             )
-            base_count_info, full_bundle = await asyncio.gather(base_count_task, full_rows_task)
+            bot_config_task = async_client.fetch_bot_config()
+            base_count_info, full_bundle, bot_config = await asyncio.gather(base_count_task, full_rows_task, bot_config_task)
             if isinstance(full_bundle, tuple) and len(full_bundle) == 2:
                 full_count_info, lucy_rows = full_bundle
             else:
@@ -1235,11 +1236,13 @@ def load_backtest_report(
                 final_filter=executed_final_filter,
             )
             backtest = await run_backtest_async(async_client, lucy_rows, config)
+            backtest["result_df"] = enrich_results_with_tournament_catalog(backtest["result_df"], bot_config)
             return {
                 "base_count_info": base_count_info,
                 "count_info": {"count": full_count_info},
                 "lucy_rows": lucy_rows,
                 "backtest": backtest,
+                "bot_config": bot_config,
                 "full_query": sanitized_base,
                 "raw_base_query": base_query,
                 "executed_base_query": executed_base_query,

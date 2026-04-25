@@ -217,6 +217,12 @@ class ZeusClient:
     def validate(self) -> dict[str, Any]:
         return self._request_json("GET", f"{AUTH_API_BASE_URL}/users/profile")
 
+    def fetch_bot_config(self) -> dict[str, Any]:
+        data = self._request_json("GET", f"{GAMES_API_BASE_URL}/config/botconfigs")
+        if not isinstance(data, dict):
+            raise ZeusContractError("Configurações retornaram um formato inesperado.")
+        return data
+
     def count(self, query: str) -> dict[str, Any]:
         if not (query or "").strip():
             raise ZeusClientError("Consulta vazia nao permitida no Zeus.")
@@ -511,6 +517,12 @@ class AsyncZeusClient:
         data = await self._request_json("POST", f"{GAMES_API_BASE_URL}/legacy/zeus", json=payload)
         if not isinstance(data, dict):
             raise ZeusContractError("Resposta do Zeus retornou formato inesperado.")
+        return data
+
+    async def fetch_bot_config(self) -> dict[str, Any]:
+        data = await self._request_json("GET", f"{GAMES_API_BASE_URL}/config/botconfigs")
+        if not isinstance(data, dict):
+            raise ZeusContractError("Configurações retornaram um formato inesperado.")
         return data
 
     async def search_page(self, query: str, page: int = 1) -> dict[str, Any]:
