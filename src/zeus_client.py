@@ -89,6 +89,32 @@ def _page_limit_for_max_games(
     return min(total_pages, current_page + extra_pages)
 
 
+def _friendly_http_error_message(url: str, status_code: int, body: str = "") -> str:
+    if status_code == 401:
+        return f"Acesso negado ao endpoint {url}. A sessao expirou ou o token esta invalido."
+    if status_code == 403:
+        return (
+            f"Acesso proibido ao endpoint {url}: HTTP 403. "
+            "A FullTrader recusou a chamada. Normalmente isso indica token sem permissao, sessao expirada, "
+            "ou protecao temporaria por muitas chamadas simultaneas."
+        )
+    if status_code == 429:
+        detail = "A Lucy limitou o volume de chamadas simultaneas. Tente novamente em alguns segundos."
+    elif status_code in (408, 425):
+        detail = "A Lucy demorou ou recusou a consulta temporariamente. Tente novamente."
+    elif status_code in (500, 502, 503, 504):
+        detail = "A API da FullTrader/Lucy respondeu com instabilidade temporaria."
+    else:
+        detail = "A consulta foi recusada pelo servidor."
+    compact_body = (body or "").strip().replace("\n", " ")
+    if len(compact_body) > 300:
+        compact_body = compact_body[:300] + "..."
+    return (
+        f"Falha ao consultar {url}: HTTP {status_code}. {detail}"
+        + (f" Resposta: {compact_body}" if compact_body else "")
+    )
+
+
 class ZeusClientError(RuntimeError):
     pass
 
@@ -225,17 +251,9 @@ class ZeusClient:
     def _request_json(self, method: str, url: str, **kwargs: Any) -> Any:
         response = self._session().request(method, url, timeout=self.config.timeout, **kwargs)
         if response.status_code in (401, 403):
-            raise ZeusAuthError(
-                f"Acesso negado ao endpoint {url}. Verifique se o token de acesso ainda esta valido."
-            )
+            raise ZeusAuthError(_friendly_http_error_message(url, response.status_code, response.text))
         if response.status_code >= 400:
-            body = (response.text or "").strip().replace("\n", " ")
-            if len(body) > 300:
-                body = body[:300] + "..."
-            raise ZeusClientError(
-                f"Falha ao consultar {url}: HTTP {response.status_code}"
-                + (f" | Resposta: {body}" if body else "")
-            )
+            raise ZeusClientError(_friendly_http_error_message(url, response.status_code, response.text))
         try:
             return response.json()
         except ValueError as exc:
@@ -445,9 +463,9 @@ class ZeusClient:
 class AsyncZeusClientConfig:
     auth_token: str = ""
     timeout: int = DEFAULT_TIMEOUT
-    max_connections: int = _int_env("ZEUS_MAX_CONNECTIONS", 80, min_value=10, max_value=200)
-    max_keepalive_connections: int = _int_env("ZEUS_MAX_KEEPALIVE_CONNECTIONS", 40, min_value=5, max_value=100)
-    page_concurrency: int = _int_env("ZEUS_LUCY_PAGE_CONCURRENCY", 24, min_value=1, max_value=80)
+    max_connections: int = _int_env("ZEUS_MAX_CONNECTIONS", 50, min_value=10, max_value=200)
+    max_keepalive_connections: int = _int_env("ZEUS_MAX_KEEPALIVE_CONNECTIONS", 25, min_value=5, max_value=100)
+    page_concurrency: int = _int_env("ZEUS_LUCY_PAGE_CONCURRENCY", 12, min_value=1, max_value=80)
     snapshot_concurrency: int = 16
 
 
@@ -519,20 +537,12 @@ class AsyncZeusClient:
                 raise ZeusClientError(f"Falha ao consultar {url}: {exc}") from exc
 
             if response.status_code in (401, 403):
-                raise ZeusAuthError(
-                    f"Acesso negado ao endpoint {url}. Verifique se o token de acesso ainda esta valido."
-                )
+                raise ZeusAuthError(_friendly_http_error_message(url, response.status_code, response.text))
             if response.status_code >= 400:
                 if response.status_code in (408, 425, 429, 500, 502, 503, 504) and attempt < 2:
                     await asyncio.sleep(0.35 * (attempt + 1))
                     continue
-                body = (response.text or "").strip().replace("\n", " ")
-                if len(body) > 300:
-                    body = body[:300] + "..."
-                raise ZeusClientError(
-                    f"Falha ao consultar {url}: HTTP {response.status_code}"
-                    + (f" | Resposta: {body}" if body else "")
-                )
+                raise ZeusClientError(_friendly_http_error_message(url, response.status_code, response.text))
             try:
                 return response.json()
             except ValueError as exc:

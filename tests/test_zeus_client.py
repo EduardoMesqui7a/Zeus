@@ -1,9 +1,28 @@
 import unittest
 
-from src.zeus_client import ZeusClient, _dedupe_rows_by_sport_event_id, _page_limit_for_max_games
+from src.zeus_client import (
+    ZeusClient,
+    _dedupe_rows_by_sport_event_id,
+    _friendly_http_error_message,
+    _page_limit_for_max_games,
+)
 
 
 class ZeusClientFinalSnapshotTests(unittest.TestCase):
+    def test_friendly_http_error_message_explains_403(self) -> None:
+        message = _friendly_http_error_message(
+            "https://gamesapi.fulltraderapps.com/legacy/lucy",
+            403,
+            '{"statusCode":403,"message":"Forbidden resource","error":"Forbidden"}',
+        )
+        self.assertIn("HTTP 403", message)
+        self.assertIn("FullTrader recusou", message)
+        self.assertIn("muitas chamadas simultaneas", message)
+
+    def test_friendly_http_error_message_explains_429(self) -> None:
+        message = _friendly_http_error_message("https://gamesapi.fulltraderapps.com/legacy/lucy", 429)
+        self.assertIn("limitou o volume", message)
+
     def test_page_limit_for_max_games_uses_only_required_lucy_pages(self) -> None:
         limit = _page_limit_for_max_games(
             total_pages=1000,
