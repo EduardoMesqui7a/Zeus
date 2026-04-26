@@ -6,6 +6,7 @@ from src.backtest import (
     _apply_back_profit,
     _apply_lay_profit,
     _extract_tournament_label,
+    _fetch_snapshot_with_fallback,
     _build_row,
     _build_row_async,
     _finalize_backtest,
@@ -390,6 +391,22 @@ class MarketSettlementTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["won"])
         self.assertIsNone(result["exit_odd"])
+
+    def test_halftime_fallback_does_not_advance_to_second_half(self) -> None:
+        calls = []
+
+        def fake_fetch(game_id: str, minute: int, period: int) -> dict:
+            calls.append((minute, period))
+            if minute == 46 and period == 2:
+                return {"Minuto": 46, "Periodo": 2, "GolsCasa": 1, "GolsVisitante": 0}
+            if minute == 44 and period == 2:
+                return {"Minuto": 44, "Periodo": 2, "GolsCasa": 0, "GolsVisitante": 0}
+            return {}
+
+        snapshot = _fetch_snapshot_with_fallback(fake_fetch, "sr:match:fallback", period=2, minute=45)
+
+        self.assertEqual(snapshot["Minuto"], 44)
+        self.assertNotIn((46, 2), calls)
 
     def test_async_backtest_matches_sync_backtest_for_all_markets(self) -> None:
         base_row = {

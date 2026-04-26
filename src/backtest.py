@@ -201,6 +201,22 @@ def _resolve_final_snapshot_target(final_filter: str, final_minute: int) -> tupl
     return resolved_period, int(final_minute)
 
 
+def _snapshot_fallback_attempts(minute: int) -> list[int]:
+    minute = int(minute)
+    attempts = [minute]
+    if minute in {45, 90}:
+        attempts.extend(
+            candidate for candidate in range(minute - 1, max(minute - 6, 0), -1) if candidate > 0
+        )
+        return attempts
+
+    for delta in range(1, 6):
+        attempts.append(minute + delta)
+        if minute - delta > 0:
+            attempts.append(minute - delta)
+    return attempts
+
+
 def _fetch_snapshot_with_fallback(
     fetch_snapshot: Callable[[str, int, int], dict[str, Any]],
     game_id: str,
@@ -208,11 +224,7 @@ def _fetch_snapshot_with_fallback(
     period: int,
     minute: int,
 ) -> dict[str, Any]:
-    attempts: list[int] = [int(minute)]
-    for delta in range(1, 6):
-        attempts.append(int(minute) + delta)
-        if int(minute) - delta > 0:
-            attempts.append(int(minute) - delta)
+    attempts = _snapshot_fallback_attempts(int(minute))
 
     seen: set[int] = set()
     last_snapshot: dict[str, Any] = {}
@@ -258,11 +270,7 @@ async def _fetch_snapshot_with_fallback_async(
     period: int,
     minute: int,
 ) -> dict[str, Any]:
-    attempts: list[int] = [int(minute)]
-    for delta in range(1, 6):
-        attempts.append(int(minute) + delta)
-        if int(minute) - delta > 0:
-            attempts.append(int(minute) - delta)
+    attempts = _snapshot_fallback_attempts(int(minute))
 
     seen: set[int] = set()
     last_snapshot: dict[str, Any] = {}
