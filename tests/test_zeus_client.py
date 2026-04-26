@@ -1,9 +1,42 @@
 import unittest
 
-from src.zeus_client import ZeusClient, _dedupe_rows_by_sport_event_id
+from src.zeus_client import ZeusClient, _dedupe_rows_by_sport_event_id, _page_limit_for_max_games
 
 
 class ZeusClientFinalSnapshotTests(unittest.TestCase):
+    def test_page_limit_for_max_games_uses_only_required_lucy_pages(self) -> None:
+        limit = _page_limit_for_max_games(
+            total_pages=1000,
+            current_page=1,
+            per_page=10,
+            rows_loaded=10,
+            max_games=50,
+        )
+        self.assertEqual(limit, 5)
+
+    def test_search_all_stops_page_requests_at_max_games(self) -> None:
+        client = ZeusClient(auth_token="token")
+        calls: list[int] = []
+
+        def fake_search_page(query: str, page: int = 1) -> dict:
+            calls.append(page)
+            return {
+                "count": 10000,
+                "numberPages": 1000,
+                "currentPage": page,
+                "perPage": 10,
+                "result": [
+                    {"sport_event_id": f"sr:match:{page}-{index}"}
+                    for index in range(10)
+                ],
+            }
+
+        client.search_page = fake_search_page  # type: ignore[method-assign]
+        rows = client.search_all("query", max_games=50)
+
+        self.assertEqual(len(rows), 50)
+        self.assertEqual(calls, [1, 2, 3, 4, 5])
+
     def test_dedupe_rows_by_sport_event_id_keeps_first_occurrence(self) -> None:
         rows = [
             {"sport_event_id": "sr:match:1", "value": 1},

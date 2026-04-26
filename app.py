@@ -10,6 +10,7 @@ import json
 import os
 import re
 import subprocess
+import time
 import zipfile
 
 import pandas as pd
@@ -985,6 +986,23 @@ def render_report_view(report: dict, token: str, market_label: str, base_query: 
     strategy_matches = int(report["backtest"]["metrics"].get("strategy_matches", matches) or matches)
     if strategy_matches:
         st.caption(f"Checagem final: {verification_hits}/{strategy_matches} jogos ({(verification_hits / strategy_matches) * 100.0:.2f}%)")
+    timings = report.get("timings") if isinstance(report, dict) else {}
+    if isinstance(timings, dict) and timings:
+        timing_labels = {
+            "total_load_seconds": "Total",
+            "lucy_search_seconds": "Busca/paginacao Lucy",
+            "backtest_snapshots_seconds": "Snapshots e calculo",
+            "zeus_count_seconds": "Contagem Zeus",
+            "bot_config_seconds": "Catalogo de torneios",
+            "tournament_enrichment_seconds": "Enriquecimento torneios",
+            "dedupe_seconds": "Deduplicacao",
+        }
+        timing_text = " | ".join(
+            f"{label}: {float(timings.get(key, 0.0)):.2f}s"
+            for key, label in timing_labels.items()
+            if key in timings
+        )
+        st.caption(f"Diagnostico de tempo: {timing_text}")
     render_charts(report["backtest"]["result_df"], block_period=st.session_state.get("zeus_profit_period", "Mensal"))
 
     st.subheader("Resultados")
@@ -1203,11 +1221,17 @@ def load_backtest_report(
     executed_final_filter = rewrite_query_minute_refs(final_filter_source, infer_final_minute(final_filter_source), final_minute)
     executed_final_filter = rewrite_query_period_refs(executed_final_filter, final_target_period)
     async def _load() -> dict:
+        timings: dict[str, float] = {}
+
+        async def _timed(name: str, coro):
+            start = time.perf_counter()
+            try:
+                return await coro
+            finally:
+                timings[name] = time.perf_counter() - start
+
+        total_start = time.perf_counter()
         async with AsyncZeusClient(auth_token=_token) as async_client:
-            async_client.config = replace(
-                async_client.config,
-                page_concurrency=1,
-            )
             base_count_task = async_client.count(sanitized_base) if sanitized_base else asyncio.sleep(0, result={"count": 0})
             full_rows_task = async_client.search_all(
                 sanitized_base,
@@ -1219,14 +1243,20 @@ def load_backtest_report(
                 bot_config_task = fetch_bot_config()
             else:
                 bot_config_task = asyncio.sleep(0, result={})
-            base_count_info, full_bundle, bot_config = await asyncio.gather(base_count_task, full_rows_task, bot_config_task)
+            base_count_info, full_bundle, bot_config = await asyncio.gather(
+                _timed("zeus_count_seconds", base_count_task),
+                _timed("lucy_search_seconds", full_rows_task),
+                _timed("bot_config_seconds", bot_config_task),
+            )
             if isinstance(full_bundle, tuple) and len(full_bundle) == 2:
                 full_count_info, lucy_rows = full_bundle
             else:
                 lucy_rows = list(full_bundle or [])
                 full_count_info = len(lucy_rows)
+            dedupe_start = time.perf_counter()
             lucy_rows = dedupe_rows_by_sport_event_id(lucy_rows)
             full_count_info = len(lucy_rows)
+            timings["dedupe_seconds"] = time.perf_counter() - dedupe_start
             config = BacktestConfig(
                 market_label=market_label,
                 stake=float(stake),
@@ -1235,14 +1265,20 @@ def load_backtest_report(
                 final_minute=final_minute,
                 final_filter=executed_final_filter,
             )
+            backtest_start = time.perf_counter()
             backtest = await run_backtest_async(async_client, lucy_rows, config)
+            timings["backtest_snapshots_seconds"] = time.perf_counter() - backtest_start
+            enrich_start = time.perf_counter()
             backtest["result_df"] = enrich_results_with_tournament_catalog(backtest["result_df"], bot_config)
+            timings["tournament_enrichment_seconds"] = time.perf_counter() - enrich_start
+            timings["total_load_seconds"] = time.perf_counter() - total_start
             return {
                 "base_count_info": base_count_info,
                 "count_info": {"count": full_count_info},
                 "lucy_rows": lucy_rows,
                 "backtest": backtest,
                 "bot_config": bot_config,
+                "timings": timings,
                 "full_query": sanitized_base,
                 "raw_base_query": base_query,
                 "executed_base_query": executed_base_query,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import re
 import threading
@@ -60,6 +61,24 @@ def _dedupe_rows_by_sport_event_id(rows: list[dict[str, Any]]) -> list[dict[str,
         seen_ids.add(game_id)
         deduped.append(row)
     return deduped
+
+
+def _page_limit_for_max_games(
+    *,
+    total_pages: int,
+    current_page: int,
+    per_page: int,
+    rows_loaded: int,
+    max_games: int | None,
+) -> int:
+    if max_games is None:
+        return total_pages
+    remaining_games = max(int(max_games) - int(rows_loaded), 0)
+    if remaining_games <= 0:
+        return current_page
+    safe_per_page = max(int(per_page or rows_loaded or 1), 1)
+    extra_pages = math.ceil(remaining_games / safe_per_page)
+    return min(total_pages, current_page + extra_pages)
 
 
 class ZeusClientError(RuntimeError):
@@ -243,13 +262,21 @@ class ZeusClient:
     ) -> list[dict[str, Any]]:
         first_page = self.search_page(query, page=1)
         total_pages = int(first_page.get("numberPages") or 1)
+        per_page = int(first_page.get("perPage") or len(first_page.get("result") or []) or 1)
         current_page = int(first_page.get("currentPage") or 1)
         rows = list(first_page.get("result") or [])
 
         if max_games is not None and len(rows) >= max_games:
             return rows[:max_games]
 
-        for page in range(current_page + 1, total_pages + 1):
+        page_limit = _page_limit_for_max_games(
+            total_pages=total_pages,
+            current_page=current_page,
+            per_page=per_page,
+            rows_loaded=len(rows),
+            max_games=max_games,
+        )
+        for page in range(current_page + 1, page_limit + 1):
             page_data = self.search_page(query, page=page)
             rows.extend(page_data.get("result") or [])
             if max_games is not None and len(rows) >= max_games:
@@ -541,6 +568,7 @@ class AsyncZeusClient:
         first_page = await self.search_page(query, page=1)
         total_count = int(first_page.get("count") or 0)
         total_pages = int(first_page.get("numberPages") or 1)
+        per_page = int(first_page.get("perPage") or len(first_page.get("result") or []) or 1)
         current_page = int(first_page.get("currentPage") or 1)
         rows = list(first_page.get("result") or [])
 
@@ -552,7 +580,14 @@ class AsyncZeusClient:
         if max_games is not None and len(rows) >= max_games:
             return _pack(rows[:max_games])
 
-        page_numbers = list(range(current_page + 1, total_pages + 1))
+        page_limit = _page_limit_for_max_games(
+            total_pages=total_pages,
+            current_page=current_page,
+            per_page=per_page,
+            rows_loaded=len(rows),
+            max_games=max_games,
+        )
+        page_numbers = list(range(current_page + 1, page_limit + 1))
         if not page_numbers:
             return _pack(rows[:max_games] if max_games is not None else rows)
 
