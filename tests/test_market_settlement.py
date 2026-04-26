@@ -262,6 +262,19 @@ class MarketSettlementTests(unittest.TestCase):
         self.assertEqual(season_name, "liga mx, clausura 2026")
         self.assertEqual(tournament_label, "liga mx, clausura 2026")
 
+    def test_finalize_backtest_distinguishes_drawdown_from_lowest_curve(self) -> None:
+        config = BacktestConfig(market_label="Back Under 0.5 HT")
+        results = [
+            {"status": "ok", "match_datetime": "2026-01-01T10:00:00Z", "profit": 100.0, "stake_risked": 100.0, "won": True, "entry_odd": 2.0},
+            {"status": "ok", "match_datetime": "2026-01-02T10:00:00Z", "profit": -80.0, "stake_risked": 100.0, "won": False, "entry_odd": 2.0},
+            {"status": "ok", "match_datetime": "2026-01-03T10:00:00Z", "profit": -10.0, "stake_risked": 100.0, "won": False, "entry_odd": 2.0},
+        ]
+
+        summary = _finalize_backtest(results, results, config)
+
+        self.assertEqual(summary["metrics"]["max_drawdown"], -90.0)
+        self.assertEqual(summary["metrics"]["worst_curve"], 10.0)
+
     def test_extract_tournament_label_keeps_tournament_id_separate_from_season(self) -> None:
         snapshot = {
             "IdTorneio": "sr:tournament:8",

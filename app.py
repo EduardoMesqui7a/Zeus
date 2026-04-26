@@ -290,7 +290,7 @@ def render_metrics(metrics: dict) -> None:
     items = [
         ("Lucro", f"{format_brl(total_profit)}", profit_class),
         ("Stake", f"{format_brl(float(metrics.get('total_risked', 0)))}"),
-        ("Drawdown máximo", f"{format_brl(float(metrics.get('worst_curve', metrics.get('worst_trade', 0))))}"),
+        ("Drawdown máximo", f"{format_brl(float(metrics.get('max_drawdown', 0)))}"),
         ("Odd média", f"{metrics.get('avg_entry_odd', 0):.2f}"),
         ("Sequência de vitória", f"{metrics.get('max_win_streak', 0)}"),
         ("Sequência de derrota", f"{metrics.get('max_loss_streak', 0)}"),
