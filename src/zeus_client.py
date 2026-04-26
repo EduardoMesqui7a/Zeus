@@ -34,6 +34,14 @@ DEFAULT_TIMEOUT = 25
 NEXT_DATA_PATTERN = re.compile(r'<script[^>]+id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.DOTALL)
 
 
+def _int_env(name: str, default: int, *, min_value: int, max_value: int) -> int:
+    try:
+        value = int(os.getenv(name, "").strip() or default)
+    except ValueError:
+        return default
+    return max(min_value, min(max_value, value))
+
+
 def _app_headers(base_url: str, auth_token: str = "") -> dict[str, str]:
     headers = {
         "Accept": "application/json, text/plain, */*",
@@ -437,9 +445,9 @@ class ZeusClient:
 class AsyncZeusClientConfig:
     auth_token: str = ""
     timeout: int = DEFAULT_TIMEOUT
-    max_connections: int = 40
-    max_keepalive_connections: int = 20
-    page_concurrency: int = 8
+    max_connections: int = _int_env("ZEUS_MAX_CONNECTIONS", 80, min_value=10, max_value=200)
+    max_keepalive_connections: int = _int_env("ZEUS_MAX_KEEPALIVE_CONNECTIONS", 40, min_value=5, max_value=100)
+    page_concurrency: int = _int_env("ZEUS_LUCY_PAGE_CONCURRENCY", 24, min_value=1, max_value=80)
     snapshot_concurrency: int = 16
 
 
